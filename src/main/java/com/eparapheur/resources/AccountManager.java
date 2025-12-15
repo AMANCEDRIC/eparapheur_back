@@ -418,7 +418,7 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
         
         // Récupérer les permissions du profil
         List<ProfilUserHasPermissionEntity> profilHasPermissions = 
-            profilUserHasPermissionRepository.find("idProfil.", profileId).list();
+            profilUserHasPermissionRepository.find("idProfil", profileId).list();
         
         List<PermissionDTO> permissions = profilHasPermissions.stream()
             .map(php -> {
