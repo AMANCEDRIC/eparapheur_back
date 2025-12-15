@@ -14,19 +14,19 @@ import java.util.Objects;
 public class ProfilUserHasPermissionEntity {
 
     @Id
-    @Column(name = "id_user", nullable = false)
-    private long idUser;
+    @Column(name = "id_profil", nullable = false)
+    private long idProfil;
 
     @Id
     @Column(name = "id_permission", nullable = false)
     private long idPermission;
 
-    public long getIdUser() {
-        return idUser;
+    public long setIdProfil() {
+        return idProfil;
     }
 
-    public void setIdUser(long idUser) {
-        this.idUser = idUser;
+    public void setIdProfil(long idProfil) {
+        this.idProfil = idProfil;
     }
 
     public long getIdPermission() {
@@ -42,11 +42,11 @@ public class ProfilUserHasPermissionEntity {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         ProfilUserHasPermissionEntity that = (ProfilUserHasPermissionEntity) o;
-        return idUser == that.idUser && idPermission == that.idPermission;
+        return idProfil == that.idProfil && idPermission == that.idPermission;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(idUser, idPermission);
+        return Objects.hash(idProfil, idPermission);
     }
 }

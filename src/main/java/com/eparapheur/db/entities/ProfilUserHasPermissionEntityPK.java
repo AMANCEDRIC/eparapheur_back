@@ -10,23 +10,23 @@ import java.util.Objects;
  */
 public class ProfilUserHasPermissionEntityPK implements Serializable {
 
-    private Long idUser;
+    private Long idProfil;
     private Long idPermission;
 
     public ProfilUserHasPermissionEntityPK() {
     }
 
-    public ProfilUserHasPermissionEntityPK(Long idUser, Long idPermission) {
-        this.idUser = idUser;
+    public ProfilUserHasPermissionEntityPK(Long idProfil, Long idPermission) {
+        this.idProfil = idProfil;
         this.idPermission = idPermission;
     }
 
     public Long getIdUser() {
-        return idUser;
+        return idProfil;
     }
 
     public void setIdUser(Long idUser) {
-        this.idUser = idUser;
+        this.idProfil = idUser;
     }
 
     public Long getIdPermission() {
@@ -41,12 +41,12 @@ public class ProfilUserHasPermissionEntityPK implements Serializable {
     public boolean equals(Object o) {
         if (this == o) return true;
         if (!(o instanceof ProfilUserHasPermissionEntityPK that)) return false;
-        return Objects.equals(idUser, that.idUser) &&
+        return Objects.equals(idProfil, that.idProfil) &&
                 Objects.equals(idPermission, that.idPermission);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(idUser, idPermission);
+        return Objects.hash(idProfil, idPermission);
     }
 }

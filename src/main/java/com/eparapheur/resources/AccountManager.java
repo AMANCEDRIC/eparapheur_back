@@ -4,12 +4,20 @@ package com.eparapheur.resources;
 import com.eparapheur.core.CrudEndPointImpl;
 import com.eparapheur.core.features.ApiResponse;
 import com.eparapheur.core.features.IAuthentifiable;
+import com.eparapheur.core.helpers.Utilities;
+import com.eparapheur.core.models.AccountDetailDTO;
 import com.eparapheur.core.models.AuthRequest;
+import com.eparapheur.core.models.AvatarDTO;
 import com.eparapheur.core.models.CreateUserRequest;
+import com.eparapheur.core.models.ForgotPasswordRequest;
 import com.eparapheur.core.models.HttpContextStatus;
 import com.eparapheur.core.models.PaginatedResponse;
+import com.eparapheur.core.models.PermissionDTO;
+import com.eparapheur.core.models.PersonDTO;
+import com.eparapheur.core.models.ProfileDTO;
 import com.eparapheur.core.models.RegisterRequest;
 import com.eparapheur.core.models.OtpVerifyRequest;
+import com.eparapheur.core.models.ResetPasswordRequest;
 import com.eparapheur.core.models.ValidateAccountRequest;
 import com.eparapheur.core.services.EmailService;
 import com.eparapheur.core.services.OtpService;
@@ -19,11 +27,14 @@ import io.quarkus.qute.Location;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.eparapheur.db.entities.AccountEntity;
+import com.eparapheur.db.entities.PermissionEntity;
 import com.eparapheur.db.entities.PersonEntity;
 import com.eparapheur.db.entities.ProfilUserEntity;
+import com.eparapheur.db.entities.ProfilUserHasPermissionEntity;
 import com.eparapheur.db.repositories.AccountRepository;
-
+import com.eparapheur.db.repositories.PermissionRepository;
 import com.eparapheur.db.repositories.PersonRepository;
+import com.eparapheur.db.repositories.ProfilUserHasPermissionRepository;
 import com.eparapheur.db.repositories.ProfilUserRepository;
 import io.quarkus.panache.common.Page;
 import io.smallrye.jwt.build.Jwt;
@@ -34,11 +45,16 @@ import jakarta.validation.Validator;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.jwt.JsonWebToken;
+import org.eclipse.microprofile.openapi.annotations.Operation;
+import org.eclipse.microprofile.openapi.annotations.responses.APIResponse;
 
 import java.time.Instant;
+import java.sql.Timestamp;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Path("/accounts")
 public class AccountManager extends CrudEndPointImpl<AccountEntity> implements IAuthentifiable {
@@ -53,6 +69,15 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
     ProfilUserRepository profilUserRepository;
 
     @Inject
+    PermissionRepository permissionRepository;
+
+    @Inject
+    ProfilUserHasPermissionRepository profilUserHasPermissionRepository;
+
+    @Inject
+    JsonWebToken jwt;
+
+    @Inject
     EmailService emailService;
 
     @Inject
@@ -61,6 +86,10 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
     @Inject
     @Location("validation")
     Template validationTemplate;
+
+    @Inject
+    @Location("reset-password")
+    Template resetPasswordTemplate;
 
     @Inject
     Validator validator;
@@ -292,17 +321,22 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
         var query = accountRepository.findAll();
         Long total = query.count();
         
-        List<AccountEntity> items = query
+        List<AccountEntity> accounts = query
                 .page(Page.of(currentPage - 1, pageSize))
                 .list();
 
+        // Transformer les AccountEntity en DTO avec structure imbriquée (utilise la méthode réutilisable)
+        List<AccountDetailDTO> items = accounts.stream()
+                .map(this::mapToAccountDetailDTO)
+                .collect(Collectors.toList());
+
         // Construire la réponse au format demandé
-        PaginatedResponse<AccountEntity> response = new PaginatedResponse<>();
+        PaginatedResponse<AccountDetailDTO> response = new PaginatedResponse<>();
         response.setStatusCode(7000);
         response.setStatusMessage("SUCCESS.");
         
         // Créer l'objet data
-        PaginatedResponse.PaginatedData<AccountEntity> data = new PaginatedResponse.PaginatedData<>();
+        PaginatedResponse.PaginatedData<AccountDetailDTO> data = new PaginatedResponse.PaginatedData<>();
         data.setTotal(total);
         data.setPageSize(pageSize);
         data.setPage(currentPage);
@@ -310,6 +344,142 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
         
         response.setData(data);
 
+        return Response.ok(response).build();
+    }
+
+    /**
+     * Méthode utilitaire pour mapper un AccountEntity vers AccountDetailDTO
+     * Réutilisable dans paginate et getOne
+     */
+    private AccountDetailDTO mapToAccountDetailDTO(AccountEntity account) {
+        AccountDetailDTO dto = new AccountDetailDTO();
+        
+        // Données du compte (sans données sensibles : mpCmpt, sessionToken, connectionAttempt)
+        dto.setId(account.getId());
+        dto.setLogin(account.getLoginCmpt());
+        dto.setActive(account.getActive());
+        dto.setDeleted(account.getDeleted());
+        dto.setCreatedAt(account.getCreatedAt());
+        dto.setUpdatedAt(account.getUpdatedAt());
+        dto.setLastConnectedAt(account.getLastConnectedAt());
+        
+        // Récupérer et mapper les informations de la personne
+        PersonEntity person = personRepository.findById(account.getIdUser());
+        if (person != null) {
+            PersonDTO personDTO = new PersonDTO();
+            personDTO.setId(person.getId());
+            personDTO.setFirstName(person.getPrenUser());
+            personDTO.setLastName(person.getNomUser());
+            personDTO.setEmail(person.getEmailUser());
+            personDTO.setPhone(person.getTelUser());
+            personDTO.setGender(person.getGenreUser());
+            personDTO.setCode(person.getCodeUser());
+            // Ne pas exposer : errorSendConfirmationEmail, acceptationCgu, dateAcceptationCgu
+            
+            dto.setPerson(personDTO);
+        }
+        
+        // Récupérer et mapper le profil (sans permissions pour l'instant)
+        if (account.getIdProfil() != null) {
+            ProfilUserEntity profil = profilUserRepository.findById(account.getIdProfil());
+            if (profil != null) {
+                ProfileDTO profileDTO = new ProfileDTO();
+                profileDTO.setId(profil.getId());
+                profileDTO.setCode(profil.getLibProfil());
+                profileDTO.setName(profil.getLibProfil());
+                profileDTO.setDescription(profil.getDescription());
+                dto.setProfile(profileDTO);
+            }
+        } else {
+            dto.setProfile(null);
+        }
+        
+        // Mapper l'avatar si disponible
+        if (account.getImgCmpt() != null && !account.getImgCmpt().isEmpty()) {
+            AvatarDTO avatarDTO = new AvatarDTO();
+            avatarDTO.setId(account.getId());
+            avatarDTO.setUrl(account.getImgCmpt());
+            avatarDTO.setCreatedAt(account.getCreatedAt());
+            dto.setAvatar(avatarDTO);
+        } else {
+            dto.setAvatar(null);
+        }
+        
+        return dto;
+    }
+
+    /**
+     * Charge les permissions pour un profil et les ajoute au ProfileDTO
+     */
+    private void loadPermissionsForProfile(ProfileDTO profileDTO, Long profileId) {
+        if (profileDTO == null || profileId == null) {
+            return;
+        }
+        
+        // Récupérer les permissions du profil
+        List<ProfilUserHasPermissionEntity> profilHasPermissions = 
+            profilUserHasPermissionRepository.find("idProfil.", profileId).list();
+        
+        List<PermissionDTO> permissions = profilHasPermissions.stream()
+            .map(php -> {
+                PermissionEntity perm = permissionRepository.findById(php.getIdPermission());
+                if (perm != null) {
+                    PermissionDTO permDTO = new PermissionDTO();
+                    permDTO.setId(perm.getId());
+                    permDTO.setName(perm.getLibPermis());
+                    permDTO.setCode(perm.getCode());
+                    return permDTO;
+                }
+                return null;
+            })
+            .filter(p -> p != null)
+            .collect(Collectors.toList());
+        
+        profileDTO.setPermissions(permissions);
+    }
+
+    /**
+     * Endpoint pour récupérer les informations de l'utilisateur connecté
+     * Utilise le JWT pour identifier l'utilisateur
+     */
+    @GET
+    @Path("getOne")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Obtenir le détail de l'utilisateur connecté", 
+               description = "Retourne le détail de l'utilisateur connecté avec ses permissions.")
+    @APIResponse(responseCode = "200", description = "success")
+    public Response getOne() {
+        ApiResponse<AccountDetailDTO> response = new ApiResponse<>();
+
+        // 1. Extraire l'accountId du JWT (même logique que l'exemple)
+        Long accountId = Utilities.getAccountIdFromJwt(jwt);
+        if (accountId == null) {
+            response.setStatus_code(HttpContextStatus.ERROR_ACTION_NOT_AUTHORIZE);
+            response.setStatus_message("Token invalide: accountId manquant.");
+            return Response.status(401).entity(response).build();
+        }
+        
+        // 2. Récupérer le compte
+        AccountEntity account = accountRepository.findById(accountId);
+
+        if (account == null) {
+            response.setStatus_code(HttpContextStatus.ERROR_RESOURCE_NOT_FOUND);
+            response.setStatus_message("Ce compte n'a pas été trouvé.");
+            return Response.status(404).entity(response).build();
+        }
+        
+        // 3. Transformer en DTO
+        AccountDetailDTO dto = mapToAccountDetailDTO(account);
+        
+        // 4. Récupérer et ajouter les permissions au profil
+        if (account.getIdProfil() != null && dto.getProfile() != null) {
+            loadPermissionsForProfile(dto.getProfile(), account.getIdProfil());
+        }
+        
+        response.setStatus_code(HttpContextStatus.SUCCESS_OPERATION);
+        response.setStatus_message("Success");
+        response.setData(dto);
+        
         return Response.ok(response).build();
     }
 
@@ -594,6 +764,212 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
     }
 
     // ... existing code ...
+
+    /**
+     * Endpoint pour demander une réinitialisation de mot de passe
+     * Envoie un email avec un lien de réinitialisation
+     */
+    @POST
+    @Path("forgot-password")
+    @Transactional
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response forgotPassword(ForgotPasswordRequest body) {
+        ApiResponse<Object> response = new ApiResponse<>();
+
+        // 1. Validation
+        var violations = validator.validate(body);
+        if (!violations.isEmpty()) {
+            response.setStatus_code(400);
+            response.setStatus_message("Erreur de validation");
+            response.setData(violations);
+            return Response.status(400).entity(response).build();
+        }
+
+        // 2. Rechercher le compte par email
+        AccountEntity account = accountRepository
+                .find("loginCmpt", body.getEmail())
+                .firstResult();
+
+        // 3. SÉCURITÉ : Toujours retourner succès pour ne pas révéler si l'email existe
+        // Mais ne rien faire si le compte n'existe pas ou est inactif
+        if (account == null || Boolean.FALSE.equals(account.getActive())) {
+            logger.info("Demande de réinitialisation pour email inexistant ou compte inactif: {}", body.getEmail());
+            // Retourner succès pour ne pas révéler l'existence du compte
+            response.setStatus_code(7000);
+            response.setStatus_message("Si cet email existe, un lien de réinitialisation a été envoyé");
+            return Response.ok(response).build();
+        }
+
+        try {
+            // 4. Nettoyer les anciens tokens de réinitialisation pour ce compte
+            if (account.getSessionToken() != null && account.getSessionToken().startsWith("RESET_")) {
+                account.setSessionToken(null);
+            }
+
+            // 5. Générer un token unique avec timestamp pour expiration (24h)
+            String resetToken = "RESET_" + java.util.UUID.randomUUID().toString() + "_" + System.currentTimeMillis();
+            
+            // 6. Stocker le token dans le compte
+            account.setSessionToken(resetToken);
+            account.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
+            accountRepository.persist(account);
+            accountRepository.flush();
+            
+            logger.info("Token de réinitialisation généré pour accountId: {}", account.getId());
+
+            // 7. Récupérer le nom de l'utilisateur pour l'email
+            PersonEntity person = personRepository.findById(account.getIdUser());
+            String userName = person != null ? person.getPrenUser() : null;
+
+            // 8. Construire l'URL de réinitialisation
+            // TODO: Remplacer par l'URL de ton frontend
+            String resetUrl = "http://localhost:8081/accounts/reset-password?token=" + resetToken;
+            // Exemple avec frontend : "https://ton-frontend.com/reset-password?token=" + resetToken
+
+            // 9. Préparer les données pour le template
+            Map<String, String> templateData = new HashMap<>();
+            if (userName != null && !userName.isBlank()) {
+                templateData.put("name", userName);
+            }
+            templateData.put("resetLink", resetUrl);
+
+            // 10. Envoyer l'email avec le template
+            String subject = "Réinitialisation de votre mot de passe - e-Parapheur";
+            boolean emailSent = emailService.send(resetPasswordTemplate, templateData, body.getEmail(), subject);
+
+            if (!emailSent) {
+                logger.warn("Échec de l'envoi de l'email de réinitialisation à {}", body.getEmail());
+                // Ne pas révéler l'échec à l'utilisateur pour la sécurité
+            } else {
+                logger.info("Email de réinitialisation envoyé à {}", body.getEmail());
+            }
+
+            // 11. Toujours retourner succès (sécurité)
+            response.setStatus_code(7000);
+            response.setStatus_message("Si cet email existe, un lien de réinitialisation a été envoyé");
+            return Response.ok(response).build();
+
+        } catch (Exception e) {
+            logger.error("Erreur lors de la génération/envoi du token de réinitialisation: {}", e.getMessage(), e);
+            // Ne pas révéler l'erreur à l'utilisateur pour la sécurité
+            response.setStatus_code(7000);
+            response.setStatus_message("Si cet email existe, un lien de réinitialisation a été envoyé");
+            return Response.ok(response).build();
+        }
+    }
+
+    /**
+     * Endpoint pour réinitialiser le mot de passe avec un token
+     */
+    @POST
+    @Path("reset-password")
+    @Transactional
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public Response resetPassword(ResetPasswordRequest body) {
+        ApiResponse<Object> response = new ApiResponse<>();
+
+        // 1. Validation
+        var violations = validator.validate(body);
+        if (!violations.isEmpty()) {
+            response.setStatus_code(400);
+            response.setStatus_message("Erreur de validation");
+            response.setData(violations);
+            return Response.status(400).entity(response).build();
+        }
+
+        // 2. Vérifier que le token a le bon format
+        if (!body.getToken().startsWith("RESET_")) {
+            logger.warn("Format de token invalide pour réinitialisation");
+            response.setStatus_code(400);
+            response.setStatus_message("Token invalide");
+            return Response.status(400).entity(response).build();
+        }
+
+        // 3. Extraire le timestamp du token pour vérifier l'expiration
+        String[] tokenParts = body.getToken().split("_");
+        if (tokenParts.length < 3) {
+            logger.warn("Token de réinitialisation malformé");
+            response.setStatus_code(400);
+            response.setStatus_message("Token invalide");
+            return Response.status(400).entity(response).build();
+        }
+
+        try {
+            long tokenTimestamp = Long.parseLong(tokenParts[2]);
+            long now = System.currentTimeMillis();
+            long tokenAge = now - tokenTimestamp;
+            long expirationTime = 24 * 60 * 60 * 1000; // 24 heures en millisecondes
+
+            // 4. Vérifier l'expiration du token (24h)
+            if (tokenAge > expirationTime) {
+                logger.warn("Token de réinitialisation expiré");
+                response.setStatus_code(400);
+                response.setStatus_message("Le lien de réinitialisation a expiré. Veuillez en demander un nouveau.");
+                return Response.status(400).entity(response).build();
+            }
+        } catch (NumberFormatException e) {
+            logger.warn("Impossible de parser le timestamp du token");
+            response.setStatus_code(400);
+            response.setStatus_message("Token invalide");
+            return Response.status(400).entity(response).build();
+        }
+
+        // 5. Chercher le compte par token
+        AccountEntity account = accountRepository
+                .find("sessionToken", body.getToken())
+                .firstResult();
+
+        if (account == null) {
+            logger.warn("Token de réinitialisation non trouvé: {}", body.getToken());
+            response.setStatus_code(404);
+            response.setStatus_message("Token invalide ou déjà utilisé");
+            return Response.status(404).entity(response).build();
+        }
+
+        // 6. Vérifier que le compte est actif
+        if (Boolean.FALSE.equals(account.getActive())) {
+            response.setStatus_code(403);
+            response.setStatus_message("Ce compte est inactif");
+            return Response.status(403).entity(response).build();
+        }
+
+        // 7. Vérifier que le nouveau mot de passe est différent de l'ancien
+        if (BcryptUtil.matches(body.getPassword(), account.getMpCmpt())) {
+            response.setStatus_code(400);
+            response.setStatus_message("Le nouveau mot de passe doit être différent de l'ancien");
+            return Response.status(400).entity(response).build();
+        }
+
+        try {
+            // 8. Hashage et mise à jour du mot de passe
+            String hashedPassword = BcryptUtil.bcryptHash(body.getPassword());
+            account.setMpCmpt(hashedPassword);
+            
+            // 9. Invalider le token (usage unique)
+            account.setSessionToken(null);
+            account.setUpdatedAt(new Timestamp(System.currentTimeMillis()));
+            accountRepository.persist(account);
+            
+            logger.info("Mot de passe réinitialisé avec succès pour accountId: {}", account.getId());
+
+            response.setStatus_code(7000);
+            response.setStatus_message("Mot de passe réinitialisé avec succès");
+            response.setData(Map.of(
+                    "accountId", account.getId(),
+                    "message", "Vous pouvez maintenant vous connecter avec votre nouveau mot de passe"
+            ));
+
+            return Response.ok(response).build();
+
+        } catch (Exception e) {
+            logger.error("Erreur lors de la réinitialisation du mot de passe: {}", e.getMessage(), e);
+            response.setStatus_code(500);
+            response.setStatus_message("Erreur lors de la réinitialisation du mot de passe");
+            return Response.status(500).entity(response).build();
+        }
+    }
 
     /**
      * Route de test pour l'envoi d'email.
