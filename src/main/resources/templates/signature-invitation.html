@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Invitation à la signature</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: white;
+        }
+        .header {
+            background-color: #0083c0;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .header h1 {
+            margin: 0;
+        }
+        .content {
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+        .content h2 {
+            color: #0083c0;
+        }
+        .invitation-text {
+            background-color: white;
+            padding: 20px;
+            border-left: 4px solid #0083c0;
+            margin: 20px 0;
+            font-size: 16px;
+        }
+        .info-box {
+            background-color: #e8f4f8;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+        .info-box h3 {
+            margin-top: 0;
+            color: #0083c0;
+        }
+        .document-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+        }
+        .document-list li {
+            padding: 8px;
+            background-color: white;
+            margin: 5px 0;
+            border-radius: 3px;
+            border-left: 3px solid #0083c0;
+        }
+        .participants-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+        }
+        .participants-list li {
+            padding: 8px;
+            background-color: white;
+            margin: 5px 0;
+            border-radius: 3px;
+        }
+        .button {
+            display: inline-block;
+            padding: 12px 30px;
+            background-color: #0083c0;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        .button:hover {
+            background-color: #006a9e;
+        }
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 12px;
+            border-top: 1px solid #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>e-Parapheur</h1>
+        </div>
+        <div class="content">
+            <h2>Invitation à la signature</h2>
+            
+            <div class="invitation-text">
+                <p>Bonjour{#if participantName} {participantName}{/if},</p>
+                <p>Vous êtes invité{#if initiatorName} par <strong>{initiatorName}</strong>{/if} à <strong>{actionTypeLabel}</strong> le document{#if documentsCount > 1}s{/if}.</p>
+            </div>
+            
+            <div class="info-box">
+                <h3>Informations du programme</h3>
+                <p><strong>Titre :</strong> {programTitle}</p>
+                {#if programDescription}
+                <p><strong>Description :</strong> {programDescription}</p>
+                {/if}
+                {#if stepName}
+                <p><strong>Étape :</strong> {stepName}</p>
+                {/if}
+            </div>
+            
+            {#if documentsList}
+            <div class="info-box">
+                <h3>Document{#if documentsCount > 1}s{/if} concerné{#if documentsCount > 1}s{/if}</h3>
+                <ul class="document-list">
+                    {#for document in documentsList}
+                    <li>{document}</li>
+                    {/for}
+                </ul>
+            </div>
+            {/if}
+            
+            {#if otherParticipantsList}
+            <div class="info-box">
+                <h3>Autre{#if otherParticipantsCount > 1}s{/if} participant{#if otherParticipantsCount > 1}s{/if}</h3>
+                <ul class="participants-list">
+                    {#for participant in otherParticipantsList}
+                    <li>{participant}</li>
+                    {/for}
+                </ul>
+            </div>
+            {/if}
+            
+            <p>Veuillez vous connecter à la plateforme pour effectuer l'action requise.</p>
+            
+            {#if programUrl}
+            <a href="{programUrl}" class="button">Accéder au programme</a>
+            {/if}
+            
+            <p class="footer" style="margin-top: 30px;">
+                Si vous n'avez pas demandé cette invitation, vous pouvez ignorer cet email.
+            </p>
+        </div>
+        <div class="footer">
+            <p>&copy; 2025 e-Parapheur. Tous droits réservés.</p>
+        </div>
+    </div>
+</body>
+</html>

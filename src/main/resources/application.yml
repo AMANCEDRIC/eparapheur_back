@@ -40,7 +40,7 @@ quarkus:
 
   # Mailer Configuration
   mailer:
-    from: noreply@cryptoneomail.com
+    from: "e-Parapheur Test <noreply@cryptoneomail.com>"
     host: ssl0.ovh.net
     username: noreply@cryptoneomail.com
     password: "m@!l*20&24#"

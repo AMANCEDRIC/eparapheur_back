@@ -16,6 +16,7 @@ import com.eparapheur.core.models.PermissionDTO;
 import com.eparapheur.core.models.PersonDTO;
 import com.eparapheur.core.models.ProfileDTO;
 import com.eparapheur.core.models.RegisterRequest;
+import com.eparapheur.core.models.OtpSendRequest;
 import com.eparapheur.core.models.OtpVerifyRequest;
 import com.eparapheur.core.models.ResetPasswordRequest;
 import com.eparapheur.core.models.ValidateAccountRequest;
@@ -327,7 +328,17 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
 
         // Transformer les AccountEntity en DTO avec structure imbriquée (utilise la méthode réutilisable)
         List<AccountDetailDTO> items = accounts.stream()
-                .map(this::mapToAccountDetailDTO)
+                .map(account -> {
+                    AccountDetailDTO dto = mapToAccountDetailDTO(account);
+
+                    // Charger les permissions pour le profil
+                    if (account.getIdProfil() != null && dto.getProfile() != null) {
+                        loadPermissionsForProfile(dto.getProfile(), account.getIdProfil());
+                    }
+
+
+                    return dto;
+                })
                 .collect(Collectors.toList());
 
         // Construire la réponse au format demandé
@@ -975,10 +986,48 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
      * Route de test pour l'envoi d'email.
      * Exemple: GET /accounts/test-mail?to=jean@yopmail.com
      */
+//    @GET
+//    @Path("test-mail")
+//    public Response testMail(@QueryParam("to") String to) {
+//        ApiResponse<Object> response = new ApiResponse<>();
+//
+//        if (to == null || to.isBlank()) {
+//            response.setStatus_code(400);
+//            response.setStatus_message("Paramètre 'to' obligatoire");
+//            return Response.status(400).entity(response).build();
+//        }
+//
+//        try {
+//            String subject = "Test d'envoi d'email - e-Parapheur";
+//            String body = "Ceci est un email de test envoyé depuis e-Parapheur.";
+//            emailService.sendTextEmail(to, subject, body);
+//
+//            response.setStatus_code(7000);
+//            response.setStatus_message("Email de test envoyé à " + to);
+//            return Response.ok(response).build();
+//        } catch (Exception e) {
+//            response.setStatus_code(500);
+//            response.setStatus_message("Erreur lors de l'envoi de l'email: " + e.getMessage());
+//            return Response.status(500).entity(response).build();
+//        }
+//    }
+
+    /**
+     * Route de test pour l'envoi d'email avec diagnostic.
+     * Exemple: GET /accounts/test-mail?to=jean@yopmail.com
+     *
+     * Options:
+     * - ?to=email@example.com (obligatoire)
+     * - &type=text (par défaut) ou html ou template
+     * - &wait=true (attendre la confirmation d'envoi)
+     */
     @GET
     @Path("test-mail")
-    public Response testMail(@QueryParam("to") String to) {
-        ApiResponse<Object> response = new ApiResponse<>();
+    public Response testMail(
+            @QueryParam("to") String to,
+            @QueryParam("type") String type,
+            @QueryParam("wait") @DefaultValue("false") boolean wait) {
+        ApiResponse<Map<String, Object>> response = new ApiResponse<>();
 
         if (to == null || to.isBlank()) {
             response.setStatus_code(400);
@@ -987,16 +1036,143 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
         }
 
         try {
-            String subject = "Test d'envoi d'email - e-Parapheur";
-            String body = "Ceci est un email de test envoyé depuis e-Parapheur.";
-            emailService.sendTextEmail(to, subject, body);
+            String emailType = (type != null && !type.isBlank()) ? type.toLowerCase() : "text";
+            Map<String, Object> data = new HashMap<>();
+
+            switch (emailType) {
+                case "text":
+                    String subject = "Test d'envoi d'email - e-Parapheur";
+                    String body = "Ceci est un email de test envoyé depuis e-Parapheur.\n\n" +
+                            "Date: " + java.time.LocalDateTime.now() + "\n" +
+                            "Type: Texte brut";
+
+                    if (wait) {
+                        // Envoi synchrone avec attente
+                        emailService.sendTextEmail(to, subject, body);
+                        data.put("message", "Email texte envoyé (mode synchrone)");
+                        data.put("sent", true);
+                    } else {
+                        // Envoi asynchrone
+                        emailService.sendTextEmail(to, subject, body);
+                        data.put("message", "Email texte envoyé (mode asynchrone)");
+                        data.put("sent", "en cours");
+                    }
+                    break;
+
+                case "html":
+                    String htmlSubject = "Test HTML - e-Parapheur";
+                    String htmlBody = """
+                    <html>
+                    <body>
+                        <h1>Test d'envoi d'email HTML</h1>
+                        <p>Ceci est un email de test envoyé depuis <strong>e-Parapheur</strong>.</p>
+                        <p>Date: %s</p>
+                        <p>Type: HTML</p>
+                    </body>
+                    </html>
+                    """.formatted(java.time.LocalDateTime.now());
+
+                    emailService.sendHtmlEmail(to, htmlSubject, htmlBody);
+                    data.put("message", "Email HTML envoyé");
+                    data.put("sent", wait ? true : "en cours");
+                    break;
+
+                case "template":
+                    // Test avec template OTP
+                    String otpCode = String.format("%06d",
+                            (int)(Math.random() * 1000000));
+                    emailService.sendOtpEmail(to, otpCode, "Utilisateur Test");
+                    data.put("message", "Email avec template OTP envoyé");
+                    data.put("otpCode", otpCode);
+                    data.put("sent", wait ? true : "en cours");
+                    break;
+
+                default:
+                    response.setStatus_code(400);
+                    response.setStatus_message("Type invalide. Utilisez: text, html ou template");
+                    return Response.status(400).entity(response).build();
+            }
+
+            data.put("recipient", to);
+            data.put("type", emailType);
+            data.put("mode", wait ? "synchrone" : "asynchrone");
 
             response.setStatus_code(7000);
             response.setStatus_message("Email de test envoyé à " + to);
+            response.setData(data);
+
+            logger.info("Email de test envoyé à {} (type: {}, mode: {})",
+                    to, emailType, wait ? "synchrone" : "asynchrone");
+
             return Response.ok(response).build();
+
         } catch (Exception e) {
+            logger.error("Erreur lors de l'envoi de l'email de test à {}: {}",
+                    to, e.getMessage(), e);
             response.setStatus_code(500);
             response.setStatus_message("Erreur lors de l'envoi de l'email: " + e.getMessage());
+            response.setData(Map.of(
+                    "error", e.getClass().getSimpleName(),
+                    "details", e.getMessage()
+            ));
+            return Response.status(500).entity(response).build();
+        }
+    }
+
+    @POST
+    @Path("/otp/send/{canal}/{action}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Operation(summary = "Envoyer un code OTP", description = "Envoie un code OTP par email/SMS/WhatsApp")
+    public Response sendOtp(
+            @PathParam("canal") String canal,
+            @PathParam("action") String action,
+            OtpSendRequest request) {
+
+        ApiResponse<Object> response = new ApiResponse<>();
+
+        // Validation
+        var violations = validator.validate(request);
+        if (!violations.isEmpty()) {
+            response.setStatus_code(400);
+            response.setStatus_message("Erreur de validation");
+            response.setData(violations);
+            return Response.status(400).entity(response).build();
+        }
+
+        try {
+            // Récupérer le compte par email
+            AccountEntity account = accountRepository
+                    .find("loginCmpt", request.getEmail())
+                    .firstResult();
+
+            if (account == null) {
+                response.setStatus_code(404);
+                response.setStatus_message("Aucun compte trouvé pour cet email");
+                return Response.status(404).entity(response).build();
+            }
+
+            // Invalider les OTP précédents
+            otpService.invalidatePreviousOtps(account.getId(), action);
+
+            // Générer et créer l'OTP
+            String otpCode = otpService.generateOtp();
+            otpService.createOtp(account.getId(), otpCode, action, canal);
+
+            // Envoyer l'email
+            PersonEntity person = personRepository.findById(account.getIdUser());
+            String userName = person != null ? person.getPrenUser() : null;
+            emailService.sendOtpEmail(account.getLoginCmpt(), otpCode, userName);
+
+            response.setStatus_code(HttpContextStatus.SUCCESS_OTP_SEND);
+            response.setStatus_message("OTP envoyé avec succès à cette adresse " + request.getEmail());
+            response.setData(null);
+            return Response.ok(response).build();
+
+        } catch (Exception e) {
+            logger.error("Erreur lors de l'envoi de l'OTP: {}", e.getMessage(), e);
+            response.setStatus_code(HttpContextStatus.SERVER_ERROR_OTP_SEND_FAIL);
+            response.setStatus_message("Erreur lors de l'envoi du code OTP");
             return Response.status(500).entity(response).build();
         }
     }
