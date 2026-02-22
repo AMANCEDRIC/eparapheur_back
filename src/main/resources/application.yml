@@ -50,7 +50,12 @@ quarkus:
     start-tls: DISABLED
     auth: true
     trust-all: true
-    
+
+  # Configuration pour le stockage des fichiers
+  file:
+    storage:
+      path: ${FILE_STORAGE_PATH:./uploads/documents}
+      max-file-size: 10485760  # 10 MB en bytes
 
 mp:
   jwt:

@@ -1,21 +1,11 @@
 package com.eparapheur.resources;
 
 import com.eparapheur.core.CrudEndPointImpl;
-import com.eparapheur.core.Pagination;
 import com.eparapheur.core.features.ApiResponse;
-import com.eparapheur.core.models.AccountDetailDTO;
-import com.eparapheur.core.models.CreateSignatureProgramRequest;
-import com.eparapheur.core.models.CreateStepRequest;
-import com.eparapheur.core.models.DocumentDTO;
-import com.eparapheur.core.models.DocumentRequest;
-import com.eparapheur.core.models.HttpContextStatus;
-import com.eparapheur.core.models.ParticipantRequest;
-import com.eparapheur.core.models.PersonDTO;
-import com.eparapheur.core.models.ProgramStepDTO;
-import com.eparapheur.core.models.SignatureProgramDTO;
-import com.eparapheur.core.models.StepParticipantDTO;
+import com.eparapheur.core.models.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.eparapheur.core.services.EmailService;
+import com.eparapheur.core.services.FileStorageService;
 import com.eparapheur.core.services.OtpService;
 import com.eparapheur.db.entities.*;
 import com.eparapheur.db.repositories.*;
@@ -26,7 +16,6 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import jakarta.validation.Validator;
 import io.quarkus.hibernate.orm.panache.PanacheQuery;
-import io.quarkus.panache.common.Page;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
@@ -73,6 +62,9 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
     
     @Inject
     EmailService emailService;
+    
+    @Inject
+    FileStorageService fileStorageService;
     
     @Inject
     PersonRepository personRepository;
@@ -254,6 +246,7 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
     
     /**
      * Crée les documents et retourne un mapping index -> documentId
+     * Utilise FileStorageService pour sauvegarder les fichiers binaires
      */
     private Map<Integer, Long> createDocuments(List<DocumentRequest> documents, Long accountId) {
         Map<Integer, Long> documentIndexToId = new HashMap<>();
@@ -261,11 +254,36 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
         
         for (int i = 0; i < documents.size(); i++) {
             DocumentRequest docReq = documents.get(i);
+            
+            // Sauvegarder le fichier binaire et obtenir le chemin
+            String savedPath = fileStorageService.saveBase64File(
+                docReq.getDocumentName(), 
+                docReq.getBinary()
+            );
+            
+            // Calculer la taille si non fournie
+            Long documentSize = docReq.getDocumentSize();
+            if (documentSize == null) {
+                try {
+                    byte[] fileBytes = java.util.Base64.getDecoder().decode(docReq.getBinary());
+                    documentSize = (long) fileBytes.length;
+                } catch (Exception e) {
+                    logger.warn("Impossible de calculer la taille du document {}, utilisation de la valeur fournie", 
+                        docReq.getDocumentName(), e);
+                }
+            }
+            
+            // Déduire le type MIME si non fourni
+            String documentType = docReq.getDocumentType();
+            if (documentType == null || documentType.isBlank()) {
+                documentType = inferDocumentType(docReq.getDocumentName());
+            }
+            
             DocumentEntity doc = new DocumentEntity();
             doc.setDocumentName(docReq.getDocumentName());
-            doc.setDocumentPath(docReq.getDocumentPath());
-            doc.setDocumentSize(docReq.getDocumentSize());
-            doc.setDocumentType(docReq.getDocumentType());
+            doc.setDocumentPath(savedPath); // Chemin généré par FileStorageService
+            doc.setDocumentSize(documentSize);
+            doc.setDocumentType(documentType);
             doc.setUploadedByAccount(accountId);
             doc.setUploadedAt(uploadTime);
             
@@ -277,6 +295,34 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
         documentRepository.flush();
         
         return documentIndexToId;
+    }
+    
+    /**
+     * Déduit le type MIME à partir de l'extension du fichier
+     */
+    private String inferDocumentType(String fileName) {
+        if (fileName == null) {
+            return "application/octet-stream";
+        }
+        
+        String lowerName = fileName.toLowerCase();
+        if (lowerName.endsWith(".pdf")) {
+            return "application/pdf";
+        } else if (lowerName.endsWith(".doc")) {
+            return "application/msword";
+        } else if (lowerName.endsWith(".docx")) {
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        } else if (lowerName.endsWith(".xls")) {
+            return "application/vnd.ms-excel";
+        } else if (lowerName.endsWith(".xlsx")) {
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        } else if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) {
+            return "image/jpeg";
+        } else if (lowerName.endsWith(".png")) {
+            return "image/png";
+        } else {
+            return "application/octet-stream";
+        }
     }
     
     /**
@@ -442,9 +488,7 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
         return Response.status(statusCode).entity(response).build();
     }
     
-    /**
-     * Surcharge de la méthode get pour utiliser un DTO et éviter les références circulaires
-     */
+
     @Override
     @GET
     @Path("{id}")
@@ -483,50 +527,48 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
         }
     }
     
-    /**
-     * Surcharge de la méthode paginate pour éviter l'erreur liée au champ 'deleted'
-     * et utiliser des DTOs pour éviter les références circulaires
-     */
+
     @Override
     @GET
-    @Path("paginate")
+    @Path("liste-all")
     @Produces(MediaType.APPLICATION_JSON)
     @Transactional
     @Operation(summary = "Obtenir la liste paginée des programmes de signature",
-               description = "Retourne la liste paginée des programmes de signature")
+            description = "Retourne la liste paginée des programmes de signature")
     public Response paginate(@QueryParam("size") int size, @QueryParam("page") int page) {
-        ApiResponse<Pagination<SignatureProgramDTO>> response = new ApiResponse<>();
+        PaginatedResponse<SignatureProgramDTO> response = new PaginatedResponse<>();
         try {
-            response.setStatus_code(7000);
-            response.setStatus_message("Success");
-            Pagination<SignatureProgramDTO> pagination = new Pagination<>();
-            int per_page = size > 0 ? size : 25;
-            int current_page = page > 0 ? page : 1;
+            int pageSize = size > 0 ? size : 25;
+            int currentPage = page > 0 ? page : 1;
 
             // Créer une requête sans filtre deleted (car cette entité n'a pas ce champ)
             PanacheQuery<SignatureProgramEntity> query = programRepository.findAll();
             Long total = query.count();
-            
-            int total_page = query.page(Page.ofSize(per_page)).pageCount();
-            List<SignatureProgramEntity> firstPage = query.page(current_page - 1, per_page).list();
+
+            List<SignatureProgramEntity> firstPage = query.page(currentPage - 1, pageSize).list();
 
             // Transformer les entités en DTOs pour éviter les références circulaires
             List<SignatureProgramDTO> items = firstPage.stream()
                     .map(this::mapToSignatureProgramDTO)
                     .collect(Collectors.toList());
 
-            // Construire les données de pagination
-            pagination.setTotal(total);
-            pagination.setTotal_of_pages(total_page);
-            pagination.setItems(items);
-            pagination.setCurrent_page(current_page);
-            pagination.setNext_page(current_page + 1 <= total_page ? current_page + 1 : current_page);
-            response.setData(pagination);
+            // Construire la réponse au format PaginatedResponse
+            response.setStatusCode(7000);
+            response.setStatusMessage("SUCCESS.");
+
+            // Créer l'objet data
+            PaginatedResponse.PaginatedData<SignatureProgramDTO> data = new PaginatedResponse.PaginatedData<>();
+            data.setTotal(total);
+            data.setPageSize(pageSize);
+            data.setPage(currentPage);
+            data.setItems(items);
+
+            response.setData(data);
 
         } catch (Exception ex) {
             logger.error("Erreur lors de la pagination des programmes", ex);
-            response.setStatus_code(Response.Status.BAD_REQUEST.getStatusCode());
-            response.setStatus_message(ex.getLocalizedMessage());
+            response.setStatusCode(Response.Status.BAD_REQUEST.getStatusCode());
+            response.setStatusMessage(ex.getLocalizedMessage());
         }
 
         return Response.status(200).entity(response).build();
