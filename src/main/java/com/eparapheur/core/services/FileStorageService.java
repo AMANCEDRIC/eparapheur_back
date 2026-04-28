@@ -167,5 +167,9 @@ public class FileStorageService {
         return String.format("%d/%02d/%02d", 
             now.getYear(), now.getMonthValue(), now.getDayOfMonth());
     }
+
+    public Path getAbsolutePath(String relativePath) {
+        return baseStoragePath.resolve(relativePath);
+    }
 }
 

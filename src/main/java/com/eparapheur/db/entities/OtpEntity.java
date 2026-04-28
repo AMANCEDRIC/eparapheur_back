@@ -14,10 +14,10 @@ public class OtpEntity {
     private long idOtp;
     @Basic
     @Column(name = "canal", nullable = false)
-    private Object canal;
+    private String canal;
     @Basic
     @Column(name = "action", nullable = false)
-    private Object action;
+    private String action;
     @Basic
     @Column(name = "otp", nullable = false, length = 6)
     private String otp;
@@ -57,19 +57,19 @@ public class OtpEntity {
         this.idOtp = idOtp;
     }
 
-    public Object getCanal() {
+    public String getCanal() {
         return canal;
     }
 
-    public void setCanal(Object canal) {
+    public void setCanal(String canal) {
         this.canal = canal;
     }
 
-    public Object getAction() {
+    public String getAction() {
         return action;
     }
 
-    public void setAction(Object action) {
+    public void setAction(String action) {
         this.action = action;
     }
 

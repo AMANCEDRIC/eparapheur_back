@@ -70,6 +70,30 @@ public class PersonEntity {
     }
 
     @Basic
+    @Column(name = "num_piece", nullable = true, length = 200)
+    private String numPiece;
+
+    public String getNumPiece() {
+        return numPiece;
+    }
+
+    public void setNumPiece(String numPiece) {
+        this.numPiece = numPiece;
+    }
+
+    @Basic
+    @Column(name = "verified", nullable = false)
+    private boolean verified;
+
+    public boolean isVerified() {
+        return verified;
+    }
+
+    public void setVerified(boolean verified) {
+        this.verified = verified;
+    }
+
+    @Basic
     @Column(name = "error_send_confirmation_email", nullable = false)
     private byte errorSendConfirmationEmail;
 
@@ -134,11 +158,11 @@ public class PersonEntity {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         PersonEntity that = (PersonEntity) o;
-        return id == that.id && errorSendConfirmationEmail == that.errorSendConfirmationEmail && Objects.equals(nomUser, that.nomUser) && Objects.equals(prenUser, that.prenUser) && Objects.equals(telUser, that.telUser) && Objects.equals(codeUser, that.codeUser) && Objects.equals(acceptationCgu, that.acceptationCgu) && Objects.equals(dateAcceptationCgu, that.dateAcceptationCgu) && Objects.equals(genreUser, that.genreUser) && Objects.equals(emailUser, that.emailUser);
+        return id == that.id && errorSendConfirmationEmail == that.errorSendConfirmationEmail && verified == that.verified && Objects.equals(nomUser, that.nomUser) && Objects.equals(prenUser, that.prenUser) && Objects.equals(telUser, that.telUser) && Objects.equals(codeUser, that.codeUser) && Objects.equals(numPiece, that.numPiece) && Objects.equals(acceptationCgu, that.acceptationCgu) && Objects.equals(dateAcceptationCgu, that.dateAcceptationCgu) && Objects.equals(genreUser, that.genreUser) && Objects.equals(emailUser, that.emailUser);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(id, nomUser, prenUser, telUser, codeUser, errorSendConfirmationEmail, acceptationCgu, dateAcceptationCgu, genreUser, emailUser);
+        return Objects.hash(id, nomUser, prenUser, telUser, codeUser, numPiece, verified, errorSendConfirmationEmail, acceptationCgu, dateAcceptationCgu, genreUser, emailUser);
     }
 }

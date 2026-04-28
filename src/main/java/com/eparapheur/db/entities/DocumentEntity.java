@@ -27,6 +27,9 @@ public class DocumentEntity extends PanacheEntityBase {
     @Column(name = "document_type", length = 100)
     private String documentType;
 
+    @Column(name = "document_hash", length = 128)
+    private String documentHash;
+
     public Long getId() {
         return id;
     }
@@ -65,6 +68,14 @@ public class DocumentEntity extends PanacheEntityBase {
 
     public void setDocumentType(String documentType) {
         this.documentType = documentType;
+    }
+
+    public String getDocumentHash() {
+        return documentHash;
+    }
+
+    public void setDocumentHash(String documentHash) {
+        this.documentHash = documentHash;
     }
 
     @Column(name = "uploaded_by_account", nullable = false)

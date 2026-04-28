@@ -46,6 +46,15 @@ public class SignatureProgramEntity extends PanacheEntityBase {
     @Column(name = "updated_at")
     private Timestamp updatedAt;
 
+    @Column(name = "is_active")
+    private Boolean active;
+
+    @Column(name = "deleted")
+    private Boolean deleted;
+
+    @Column(name = "deleted_at")
+    private Timestamp deletedAt;
+
     @OneToMany(mappedBy = "program", cascade = CascadeType.ALL)
     private List<ProgramStepEntity> steps;
 
@@ -135,6 +144,30 @@ public class SignatureProgramEntity extends PanacheEntityBase {
 
     public void setUpdatedAt(Timestamp updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Boolean getActive() {
+        return active;
+    }
+
+    public void setActive(Boolean active) {
+        this.active = active;
+    }
+
+    public Boolean getDeleted() {
+        return deleted;
+    }
+
+    public void setDeleted(Boolean deleted) {
+        this.deleted = deleted;
+    }
+
+    public Timestamp getDeletedAt() {
+        return deletedAt;
+    }
+
+    public void setDeletedAt(Timestamp deletedAt) {
+        this.deletedAt = deletedAt;
     }
 
     public List<ProgramStepEntity> getSteps() {
