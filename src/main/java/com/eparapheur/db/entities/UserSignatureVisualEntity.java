@@ -48,6 +48,17 @@ public class UserSignatureVisualEntity extends PanacheEntityBase {
     @Column(name = "deleted_at")
     private Timestamp deletedAt;
 
+    @Transient
+    private String visualUrl;
+
+    public String getVisualUrl() {
+        return visualUrl;
+    }
+
+    public void setVisualUrl(String visualUrl) {
+        this.visualUrl = visualUrl;
+    }
+
     public Long getId() {
         return id;
     }

@@ -14,6 +14,15 @@ public class DocumentDTO {
     private Long uploadedByAccount;
     private Timestamp uploadedAt;
     private Timestamp createdAt;
+    private String documentUrl;
+
+    public String getDocumentUrl() {
+        return documentUrl;
+    }
+
+    public void setDocumentUrl(String documentUrl) {
+        this.documentUrl = documentUrl;
+    }
 
     public DocumentDTO() {
     }

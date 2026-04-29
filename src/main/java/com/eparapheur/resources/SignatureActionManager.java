@@ -3,6 +3,7 @@ package com.eparapheur.resources;
 import com.eparapheur.core.features.ApiResponse;
 import com.eparapheur.core.models.HttpContextStatus;
 import com.eparapheur.core.services.AuditService;
+import com.eparapheur.core.services.FileStorageService;
 import com.eparapheur.core.services.OtpService;
 import com.eparapheur.core.services.SignatureService;
 import com.eparapheur.db.entities.*;
@@ -53,6 +54,15 @@ public class SignatureActionManager {
     @Inject
     UserCertificateRepository certificateRepository;
 
+    @Inject
+    SignedDocumentRepository signedDocumentRepository;
+
+    @Inject
+    FileStorageService fileStorageService;
+
+    @Inject
+    ProgramStepRepository stepRepository;
+
     @POST
     @Path("/execute")
     @Transactional
@@ -79,14 +89,18 @@ public class SignatureActionManager {
             OtpEntity otp = otpService.verifyOtp(participant.getIdAccount(), otpCode, "SIGNATURE");
             if (otp == null) return buildErrorResponse(401, "Code OTP invalide ou expiré.");
 
-            // 3. Récupérer le document
+            // 3. Récupérer le document original
             DocumentEntity document = documentRepository.findById(documentId);
             if (document == null) return buildErrorResponse(404, "Document introuvable.");
 
-            // 4. Récupérer le visuel (optionnel)
+            // 4. Récupérer la version déjà signée si elle existe (cumul)
+            SignedDocumentEntity existingSignedDoc = signedDocumentRepository.find("idDocument", documentId).firstResult();
+            String inputPath = (existingSignedDoc != null) ? existingSignedDoc.getSignedPath() : document.getDocumentPath();
+
+            // 5. Récupérer le visuel (optionnel)
             UserSignatureVisualEntity visual = (visualId != null) ? visualRepository.findById(visualId) : null;
 
-            // 5. Créer l'acte de signature
+            // 6. Créer l'acte de signature
             SignatureActionEntity action = new SignatureActionEntity();
             action.setIdStepParticipant(participantId);
             action.setIdDocument(documentId);
@@ -100,34 +114,54 @@ public class SignatureActionManager {
             action.setIpAddress(getIpAddress(headers));
             action.setUserAgent(headers.getHeaderString("User-Agent"));
 
-            // Calcul du hash avant signature
-            //action.setDocumentHashBefore(signatureService.calculateDocumentHash(new File(document.getDocumentPath())));
-
-            String fullPath = "uploads/documents/" + document.getDocumentPath();
-
+            // Calcul du hash du fichier d'entrée (avant cette signature)
             action.setDocumentHashBefore(
                     signatureService.calculateDocumentHash(
-                            new File(fullPath)
+                            fileStorageService.getAbsolutePath(inputPath).toFile()
                     )
             );
 
-            // 6. Appliquer le visuel
+            // 7. Appliquer le visuel
+            String resultPath = inputPath;
             if (visual != null) {
-                String newPath = signatureService.applySignatureVisual(document, visual, action);
-                // On pourrait créer un SignedDocumentEntity ici pour suivre les versions
+                resultPath = signatureService.applySignatureVisual(inputPath, document.getDocumentName(), visual, action);
             }
 
-            // 7. Enregistrer l'acte
+            // 8. Enregistrer/Mettre à jour SignedDocumentEntity
+            if (existingSignedDoc == null) {
+                existingSignedDoc = new SignedDocumentEntity();
+                existingSignedDoc.setIdDocument(documentId);
+                
+                // Trouver le programme et l'étape
+                ProgramStepEntity step = stepRepository.findById(participant.getIdStep());
+                if (step != null) {
+                    existingSignedDoc.setIdStep(step.getId());
+                    existingSignedDoc.setIdProgram(step.getIdProgram());
+                }
+                existingSignedDoc.setSignaturesCount(1);
+            } else {
+                existingSignedDoc.setSignaturesCount(existingSignedDoc.getSignaturesCount() + 1);
+            }
+            
+            existingSignedDoc.setSignedPath(resultPath);
+            File resultFile = fileStorageService.getAbsolutePath(resultPath).toFile();
+            existingSignedDoc.setFileSize(resultFile.length());
+            existingSignedDoc.setSignedHash(signatureService.calculateDocumentHash(resultFile));
+            
+            signedDocumentRepository.persist(existingSignedDoc);
+
+            // 9. Enregistrer l'acte
             signatureService.recordSignatureAction(action);
 
-            // 8. Mettre à jour le statut du participant
+            // 10. Mettre à jour le statut du participant
             participant.setStatus("COMPLETED");
             participantRepository.persist(participant);
 
-            // 9. Logger l'audit
+            // 11. Logger l'audit
             Map<String, Object> auditData = new HashMap<>();
             auditData.put("actionId", action.getId());
             auditData.put("documentId", documentId);
+            auditData.put("signedPath", resultPath);
             auditService.logEvent("signature_completed", auditData, participant.getIdAccount(), 
                                   null, participant.getIdStep(), action.getIpAddress(), action.getUserAgent());
 

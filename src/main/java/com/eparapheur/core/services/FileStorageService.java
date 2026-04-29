@@ -21,30 +21,42 @@ public class FileStorageService {
     
     private static final Logger logger = LoggerFactory.getLogger(FileStorageService.class);
     
-    @ConfigProperty(name = "quarkus.file.storage.path", defaultValue = "./uploads/documents")
+    @ConfigProperty(name = "quarkus.file.storage.path", defaultValue = "./uploads")
     String storagePath;
     
     @ConfigProperty(name = "quarkus.file.storage.max-file-size", defaultValue = "10485760")
     Long maxFileSize;
     
     private Path baseStoragePath;
+
+    public enum StorageType {
+        ORIGINAL("documents/original"),
+        SIGNED("documents/signed"),
+        VISUAL("visuals");
+
+        private final String subPath;
+
+        StorageType(String subPath) {
+            this.subPath = subPath;
+        }
+
+        public String getSubPath() {
+            return subPath;
+        }
+    }
     
     @PostConstruct
     void init() {
         try {
             baseStoragePath = Paths.get(storagePath).toAbsolutePath();
             
-            // Créer le répertoire s'il n'existe pas
-            if (!Files.exists(baseStoragePath)) {
-                Files.createDirectories(baseStoragePath);
-                logger.info("Répertoire de stockage créé: {}", baseStoragePath);
-            } else {
-                logger.info("Répertoire de stockage existant: {}", baseStoragePath);
-            }
-            
-            // Vérifier les permissions d'écriture
-            if (!Files.isWritable(baseStoragePath)) {
-                throw new RuntimeException("Le répertoire de stockage n'est pas accessible en écriture: " + baseStoragePath);
+            // Créer les répertoires de base s'ils n'existent pas
+            for (StorageType type : StorageType.values()) {
+                Path path = baseStoragePath.resolve(type.getSubPath());
+                if (!Files.exists(path)) {
+                    Files.createDirectories(path);
+                    logger.info("Répertoire de stockage créé: {}", path);
+                }
             }
             
         } catch (IOException e) {
@@ -57,9 +69,10 @@ public class FileStorageService {
      * Sauvegarde un fichier encodé en base64
      * @param fileName Nom original du fichier
      * @param base64Content Contenu en base64
-     * @return Chemin relatif du fichier sauvegardé (à stocker en BDD)
+     * @param type Type de stockage (ORIGINAL, SIGNED, VISUAL)
+     * @return Chemin relatif du fichier sauvegardé (format: TYPE/YYYY/MM/dd/filename)
      */
-    public String saveBase64File(String fileName, String base64Content) {
+    public String saveBase64File(String fileName, String base64Content, StorageType type) {
         try {
             // 1. Décoder le base64
             byte[] fileBytes = Base64.getDecoder().decode(base64Content);
@@ -71,26 +84,28 @@ public class FileStorageService {
                         fileBytes.length, maxFileSize));
             }
             
-            // 3. Générer un nom de fichier unique (éviter les collisions)
+            // 3. Générer un nom de fichier unique
             String uniqueFileName = generateUniqueFileName(fileName);
             
-            // 4. Organiser par date (optionnel mais recommandé)
-            Path dateFolder = baseStoragePath.resolve(getCurrentDateFolder());
-            if (!Files.exists(dateFolder)) {
-                Files.createDirectories(dateFolder);
+            // 4. Organiser par type et date
+            String dateFolder = getCurrentDateFolder();
+            Path targetFolder = baseStoragePath.resolve(type.getSubPath()).resolve(dateFolder);
+            
+            if (!Files.exists(targetFolder)) {
+                Files.createDirectories(targetFolder);
             }
             
             // 5. Chemin complet du fichier
-            Path filePath = dateFolder.resolve(uniqueFileName);
+            Path filePath = targetFolder.resolve(uniqueFileName);
             
             // 6. Sauvegarder le fichier
             Files.write(filePath, fileBytes, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
             
-            logger.info("Fichier sauvegardé: {}", filePath);
+            logger.info("Fichier sauvegardé [{}]: {}", type, filePath);
             
-            // 7. Retourner le chemin relatif (pour stockage en BDD)
-            // Format: YYYY/MM/dd/filename.pdf
-            return getCurrentDateFolder() + "/" + uniqueFileName;
+            // 7. Retourner le chemin relatif incluant le sous-chemin du type
+            // Format: documents/original/2026/04/28/filename.pdf
+            return type.getSubPath() + "/" + dateFolder + "/" + uniqueFileName;
             
         } catch (IllegalArgumentException e) {
             logger.error("Erreur de validation: {}", e.getMessage());
@@ -103,7 +118,7 @@ public class FileStorageService {
     
     /**
      * Récupère le contenu d'un fichier à partir de son chemin relatif
-     * @param relativePath Chemin relatif (format: YYYY/MM/dd/filename.pdf)
+     * @param relativePath Chemin relatif (format: TYPE/YYYY/MM/dd/filename)
      * @return Contenu du fichier en bytes
      */
     public byte[] getFileContent(String relativePath) {

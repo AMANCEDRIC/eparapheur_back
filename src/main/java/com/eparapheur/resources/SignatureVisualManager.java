@@ -51,7 +51,7 @@ public class SignatureVisualManager {
 
             // Sauvegarde physique
             String fileName = "sig_" + accountId + "_" + System.currentTimeMillis() + ".png";
-            String path = fileStorageService.saveBase64File(fileName, base64Image);
+            String path = fileStorageService.saveBase64File(fileName, base64Image, FileStorageService.StorageType.VISUAL);
 
             // Calcul du hash de l'image
             byte[] imageBytes = java.util.Base64.getDecoder().decode(base64Image);
@@ -67,6 +67,7 @@ public class SignatureVisualManager {
             entity.setActive(true);
 
             visualRepository.persist(entity);
+            populateVisualUrl(entity);
 
             ApiResponse<UserSignatureVisualEntity> response = new ApiResponse<>();
             response.setStatus_code(HttpContextStatus.SUCCESS_OPERATION);
@@ -84,6 +85,7 @@ public class SignatureVisualManager {
     @Path("/account/{accountId}")
     public Response listVisuals(@PathParam("accountId") Long accountId) {
         List<UserSignatureVisualEntity> visuals = visualRepository.list("idAccount", accountId);
+        visuals.forEach(this::populateVisualUrl);
         
         ApiResponse<List<UserSignatureVisualEntity>> response = new ApiResponse<>();
         response.setStatus_code(HttpContextStatus.SUCCESS_OPERATION);
@@ -91,6 +93,17 @@ public class SignatureVisualManager {
         response.setData(visuals);
         
         return Response.ok(response).build();
+    }
+
+    private void populateVisualUrl(UserSignatureVisualEntity entity) {
+        if (entity != null && entity.getVisualPath() != null) {
+            // Supprimer le préfixe "visuals/" car l'endpoint FileResource le rajoute déjà
+            String path = entity.getVisualPath();
+            if (path.startsWith("visuals/")) {
+                path = path.substring("visuals/".length());
+            }
+            entity.setVisualUrl("/api/files/visuals/" + path);
+        }
     }
 
     private String calculateHash(byte[] data) throws Exception {

@@ -65,26 +65,15 @@ public class SignatureService {
      * Applique un visuel de signature sur un PDF.
      * Pour l'instant, cette méthode génère un nouveau fichier PDF avec l'image incrustée.
      */
-    public String applySignatureVisual(DocumentEntity document, UserSignatureVisualEntity visual, SignatureActionEntity action) throws Exception {
-        //File inputFile = new File(document.getDocumentPath());
-
-
-
-        Path inputPath = Paths.get(
-                "uploads",
-                "documents",
-                document.getDocumentPath()
-        );
-
+    public String applySignatureVisual(String relativeInputPath, String originalFileName, UserSignatureVisualEntity visual, SignatureActionEntity action) throws Exception {
+        Path inputPath = fileStorageService.getAbsolutePath(relativeInputPath);
         File inputFile = inputPath.toFile();
 
-        logger.info("Document path DB: {}", document.getDocumentPath());
-        logger.info("Absolute path: {}", inputFile.getAbsolutePath());
+        logger.info("Input path: {}", inputFile.getAbsolutePath());
         logger.info("Exists: {}", inputFile.exists());
 
-
         if (!inputFile.exists()) {
-            throw new Exception("Fichier source introuvable : " + document.getDocumentPath());
+            throw new Exception("Fichier source introuvable : " + relativeInputPath);
         }
 
         try (PDDocument pdf = Loader.loadPDF(inputFile)) {
@@ -96,36 +85,36 @@ public class SignatureService {
             PDPage page = pdf.getPage(pageNum);
             
             // Chargement de l'image de signature
-            Path visualPath = fileStorageService.getAbsolutePath(
-                    visual.getVisualPath()
-            );
-
+            Path visualPath = fileStorageService.getAbsolutePath(visual.getVisualPath());
             File visualFile = visualPath.toFile();
 
             if (!visualFile.exists()) {
-                throw new Exception("Visuel introuvable");
+                throw new Exception("Visuel introuvable : " + visual.getVisualPath());
             }
 
-            if (visualFile.exists()) {
-                PDImageXObject pdImage = PDImageXObject.createFromFileByExtension(visualFile, pdf);
+            PDImageXObject pdImage = PDImageXObject.createFromFileByExtension(visualFile, pdf);
+            
+            try (PDPageContentStream contentStream = new PDPageContentStream(pdf, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
+                float x = action.getSignatureX() != null ? action.getSignatureX().floatValue() : 100;
+                float y = action.getSignatureY() != null ? action.getSignatureY().floatValue() : 100;
+                float width = action.getSignatureWidth() != null ? action.getSignatureWidth().floatValue() : 150;
+                float height = action.getSignatureHeight() != null ? action.getSignatureHeight().floatValue() : 50;
                 
-                try (PDPageContentStream contentStream = new PDPageContentStream(pdf, page, PDPageContentStream.AppendMode.APPEND, true, true)) {
-                    float x = action.getSignatureX() != null ? action.getSignatureX().floatValue() : 100;
-                    float y = action.getSignatureY() != null ? action.getSignatureY().floatValue() : 100;
-                    float width = action.getSignatureWidth() != null ? action.getSignatureWidth().floatValue() : 150;
-                    float height = action.getSignatureHeight() != null ? action.getSignatureHeight().floatValue() : 50;
-                    
-                    contentStream.drawImage(pdImage, x, y, width, height);
-                }
+                contentStream.drawImage(pdImage, x, y, width, height);
             }
 
-            // Sauvegarde du fichier intermédiaire/final
-            String outputFileName = "signed_" + System.currentTimeMillis() + "_" + document.getDocumentName();
+            // Sauvegarde du fichier final
+            String outputFileName = "signed_" + System.currentTimeMillis() + "_" + originalFileName;
             File tempFile = Files.createTempFile("sign_", ".pdf").toFile();
             pdf.save(tempFile);
             
             // Stockage définitif
-            return fileStorageService.saveBase64File(outputFileName, Base64.getEncoder().encodeToString(Files.readAllBytes(tempFile.toPath())));
+            String savedPath = fileStorageService.saveBase64File(outputFileName, Base64.getEncoder().encodeToString(Files.readAllBytes(tempFile.toPath())), FileStorageService.StorageType.SIGNED);
+            
+            // Nettoyage
+            tempFile.delete();
+            
+            return savedPath;
         }
     }
 

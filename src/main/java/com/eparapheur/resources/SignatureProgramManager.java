@@ -258,7 +258,8 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
             // Sauvegarder le fichier binaire et obtenir le chemin
             String savedPath = fileStorageService.saveBase64File(
                 docReq.getDocumentName(), 
-                docReq.getBinary()
+                docReq.getBinary(),
+                FileStorageService.StorageType.ORIGINAL
             );
             
             // Calculer la taille si non fournie
@@ -743,6 +744,7 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
         dto.setUploadedByAccount(document.getUploadedByAccount());
         dto.setUploadedAt(document.getUploadedAt());
         dto.setCreatedAt(document.getCreatedAt());
+        dto.setDocumentUrl("/api/files/documents/" + document.getId());
         
         return dto;
     }
