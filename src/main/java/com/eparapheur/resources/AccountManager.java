@@ -668,7 +668,7 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
         // 7. Envoyer l'email avec le lien de validation
         try {
             // TODO: Remplacer par l'URL de ton frontend
-            String validationUrl = "http://localhost:8081/accounts/validate?token=" + validationToken;
+            String validationUrl = "http://localhost:4200/accounts/validate?token=" + validationToken;
             // Exemple avec frontend : "https://ton-frontend.com/validate-account?token=" + validationToken
             
             Map<String, String> templateData = new HashMap<>();
@@ -835,7 +835,7 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
 
             // 8. Construire l'URL de réinitialisation
             // TODO: Remplacer par l'URL de ton frontend
-            String resetUrl = "http://localhost:8081/accounts/reset-password?token=" + resetToken;
+            String resetUrl = "http://localhost:4200/accounts/reset-password?token=" + resetToken;
             // Exemple avec frontend : "https://ton-frontend.com/reset-password?token=" + resetToken
 
             // 9. Préparer les données pour le template
