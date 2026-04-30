@@ -19,6 +19,8 @@ import io.quarkus.hibernate.orm.panache.PanacheQuery;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import org.eclipse.microprofile.jwt.JsonWebToken;
+import com.eparapheur.core.helpers.Utilities;
 import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,6 +76,9 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
     
     @Inject
     Validator validator;
+
+    @Inject
+    JsonWebToken jwt;
     
     @PostConstruct
     void init() {
@@ -85,7 +90,7 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
     @Consumes(MediaType.APPLICATION_JSON)
     @Produces(MediaType.APPLICATION_JSON)
     @Transactional
-    @Operation(summary = "Créer un programme de signature", 
+    @Operation(summary = "Créer un programme de signature",
                description = "Crée un programme de signature avec validation OTP")
     public Response create(CreateSignatureProgramRequest request) {
         try {
@@ -573,6 +578,76 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
         }
 
         return Response.status(200).entity(response).build();
+    }
+
+    @GET
+    @Path("liste-mes-creations")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Transactional
+    @Operation(summary = "Obtenir les programmes créés par l'utilisateur connecté",
+               description = "Retourne la liste paginée des programmes de signature dont l'utilisateur est l'initiateur")
+    public Response getMyCreatedPrograms(@QueryParam("size") int size, @QueryParam("page") int page) {
+        return getPaginatedPrograms(size, page, "my-created");
+    }
+
+    @GET
+    @Path("liste-me-concernant")
+    @Produces(MediaType.APPLICATION_JSON)
+    @Transactional
+    @Operation(summary = "Obtenir les programmes concernant l'utilisateur connecté",
+               description = "Retourne la liste paginée des programmes où l'utilisateur est initiateur ou participant")
+    public Response getInvolvedPrograms(@QueryParam("size") int size, @QueryParam("page") int page) {
+        return getPaginatedPrograms(size, page, "involved");
+    }
+
+    /**
+     * Méthode générique pour la pagination des programmes avec filtrage
+     */
+    private Response getPaginatedPrograms(int size, int page, String filterType) {
+        PaginatedResponse<SignatureProgramDTO> response = new PaginatedResponse<>();
+        try {
+            Long accountId = Utilities.getAccountIdFromJwt(jwt);
+            if (accountId == null) {
+                return buildErrorResponse(401, "Utilisateur non authentifié", null);
+            }
+
+            int pageSize = size > 0 ? size : 25;
+            int currentPage = page > 0 ? page : 1;
+
+            PanacheQuery<SignatureProgramEntity> query;
+            if ("my-created".equals(filterType)) {
+                query = programRepository.findByInitiator(accountId);
+            } else if ("involved".equals(filterType)) {
+                query = programRepository.findInvolvedByUser(accountId);
+            } else {
+                query = programRepository.findAll();
+            }
+
+            Long total = query.count();
+            List<SignatureProgramEntity> items = query.page(currentPage - 1, pageSize).list();
+
+            List<SignatureProgramDTO> dtos = items.stream()
+                    .map(this::mapToSignatureProgramDTO)
+                    .collect(Collectors.toList());
+
+            response.setStatusCode(7000);
+            response.setStatusMessage("SUCCESS.");
+
+            PaginatedResponse.PaginatedData<SignatureProgramDTO> data = new PaginatedResponse.PaginatedData<>();
+            data.setTotal(total);
+            data.setPageSize(pageSize);
+            data.setPage(currentPage);
+            data.setItems(dtos);
+
+            response.setData(data);
+
+        } catch (Exception ex) {
+            logger.error("Erreur lors de la récupération des programmes ({})", filterType, ex);
+            response.setStatusCode(Response.Status.INTERNAL_SERVER_ERROR.getStatusCode());
+            response.setStatusMessage("Erreur interne lors de la récupération des programmes");
+        }
+
+        return Response.ok(response).build();
     }
     
     /**
