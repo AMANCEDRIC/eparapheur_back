@@ -20,6 +20,7 @@ import com.eparapheur.core.models.OtpSendRequest;
 import com.eparapheur.core.models.OtpVerifyRequest;
 import com.eparapheur.core.models.ResetPasswordRequest;
 import com.eparapheur.core.models.ValidateAccountRequest;
+import com.eparapheur.core.services.CryptoService;
 import com.eparapheur.core.services.EmailService;
 import com.eparapheur.core.services.OtpService;
 import io.quarkus.elytron.security.common.BcryptUtil;
@@ -83,6 +84,9 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
 
     @Inject
     OtpService otpService;
+
+    @Inject
+    CryptoService cryptoService;
 
     @Inject
     @Location("validation")
@@ -740,6 +744,14 @@ public class AccountManager extends CrudEndPointImpl<AccountEntity> implements I
         account.setActive(true);  // Activer le compte
         account.setSessionToken(null);  // Supprimer le token (usage unique)
         accountRepository.persist(account);
+
+        // 6. Générer l'identité numérique (Clés RSA + Certificat) pour signature avancée
+        try {
+            cryptoService.generateUserIdentity(account);
+        } catch (Exception e) {
+            logger.error("Erreur lors de la génération de l'identité numérique pour account {}: {}", account.getId(), e.getMessage());
+            // On ne bloque pas la validation si la génération d'identité échoue, mais on le log
+        }
 
         // 5. Mettre à jour la Person (accepter CGU)
         PersonEntity person = personRepository.findById(account.getIdUser());

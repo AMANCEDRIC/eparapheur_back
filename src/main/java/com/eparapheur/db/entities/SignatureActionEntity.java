@@ -43,6 +43,13 @@ public class SignatureActionEntity extends PanacheEntityBase {
     @JoinColumn(name = "id_visual", insertable = false, updatable = false)
     private UserSignatureVisualEntity visual;
 
+    @Column(name = "id_private_key")
+    private Long idPrivateKey;
+
+    @ManyToOne
+    @JoinColumn(name = "id_private_key", insertable = false, updatable = false)
+    private UserPrivateKeyEntity privateKey;
+
     @Column(name = "id_otp", nullable = false)
     private Long idOtp;
 
@@ -165,6 +172,22 @@ public class SignatureActionEntity extends PanacheEntityBase {
 
     public void setVisual(UserSignatureVisualEntity visual) {
         this.visual = visual;
+    }
+
+    public Long getIdPrivateKey() {
+        return idPrivateKey;
+    }
+
+    public void setIdPrivateKey(Long idPrivateKey) {
+        this.idPrivateKey = idPrivateKey;
+    }
+
+    public UserPrivateKeyEntity getPrivateKey() {
+        return privateKey;
+    }
+
+    public void setPrivateKey(UserPrivateKeyEntity privateKey) {
+        this.privateKey = privateKey;
     }
 
     public Long getIdOtp() {

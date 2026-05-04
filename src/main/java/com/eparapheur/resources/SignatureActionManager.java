@@ -2,10 +2,7 @@ package com.eparapheur.resources;
 
 import com.eparapheur.core.features.ApiResponse;
 import com.eparapheur.core.models.HttpContextStatus;
-import com.eparapheur.core.services.AuditService;
-import com.eparapheur.core.services.FileStorageService;
-import com.eparapheur.core.services.OtpService;
-import com.eparapheur.core.services.SignatureService;
+import com.eparapheur.core.services.*;
 import com.eparapheur.db.entities.*;
 import com.eparapheur.db.repositories.*;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -40,6 +37,9 @@ public class SignatureActionManager {
     OtpService otpService;
 
     @Inject
+    CryptoService cryptoService;
+
+    @Inject
     AuditService auditService;
 
     @Inject
@@ -63,6 +63,9 @@ public class SignatureActionManager {
     @Inject
     ProgramStepRepository stepRepository;
 
+    @Inject
+    AccountRepository accountRepository;
+
     @POST
     @Path("/execute")
     @Transactional
@@ -80,6 +83,9 @@ public class SignatureActionManager {
             BigDecimal x = request.get("x") != null ? new BigDecimal(request.get("x").toString()) : null;
             BigDecimal y = request.get("y") != null ? new BigDecimal(request.get("y").toString()) : null;
             Integer page = request.get("page") != null ? Integer.valueOf(request.get("page").toString()) : 1;
+
+            // NOUVEAU: Support de la signature automatique pour les anciens comptes
+            Boolean forceAdvanced = request.get("forceAdvanced") != null && (Boolean) request.get("forceAdvanced");
 
             // 1. Récupérer le participant
             StepParticipantEntity participant = participantRepository.findById(participantId);
@@ -121,7 +127,45 @@ public class SignatureActionManager {
                     )
             );
 
-            // 7. Appliquer le visuel
+            // 7. Signature cryptographique (si certificat présent ou forcé)
+            if (certificateId == null) {
+                // Tentative de récupération automatique du certificat par défaut de l'utilisateur
+                UserCertificateEntity cert = certificateRepository.find("idAccount = ?1 AND active = true", participant.getIdAccount()).firstResult();
+                
+                // Si l'utilisateur n'a pas de certificat et qu'on veut de l'avancée (ou réparation automatique)
+                if (cert == null) {
+                    logger.info("Réparation automatique : Génération d'identité pour le compte {}", participant.getIdAccount());
+                    AccountEntity account = accountRepository.findById(participant.getIdAccount());
+                    if (account != null) {
+                        cryptoService.generateUserIdentity(account);
+                        cert = certificateRepository.find("idAccount = ?1 AND active = true", participant.getIdAccount()).firstResult();
+                    }
+                }
+                
+                if (cert != null) {
+                    certificateId = cert.getId();
+                }
+            }
+
+            if (certificateId != null) {
+                UserCertificateEntity cert = certificateRepository.findById(certificateId);
+                if (cert != null) {
+                    action.setIdCertificate(certificateId);
+                    action.setSignatureLevel(cert.getSignatureLevel());
+                    if ("avancee".equals(cert.getSignatureLevel())) {
+                        String signatureValue = cryptoService.signHash(action.getDocumentHashBefore(), participant.getIdAccount());
+                        action.setSignatureValue(signatureValue);
+                        
+                        // Lier l'entité clé privée à l'acte
+                        UserPrivateKeyEntity keyEntity = cryptoService.getPrivateKeyEntity(participant.getIdAccount());
+                        if (keyEntity != null) {
+                            action.setIdPrivateKey(keyEntity.getId());
+                        }
+                    }
+                }
+            }
+
+            // 8. Appliquer le visuel
             String resultPath = inputPath;
             if (visual != null) {
                 resultPath = signatureService.applySignatureVisual(inputPath, document.getDocumentName(), visual, action);
