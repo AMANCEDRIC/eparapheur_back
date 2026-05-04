@@ -30,6 +30,10 @@ public class EmailService {
     @io.quarkus.qute.Location("signature-invitation")
     Template signatureInvitationTemplate;
 
+    @Inject
+    @io.quarkus.qute.Location("program-completed")
+    Template programCompletedTemplate;
+
     /**
      * Méthode générique pour envoyer un email avec un template Qute
      * @param template Template Qute injecté
@@ -282,6 +286,28 @@ public class EmailService {
         String textBody = "Bonjour " + firstName + ",\n\nBienvenue sur e-Parapheur !";
         
         sendEmail(to, subject, textBody, htmlBody);
+    }
+
+    /**
+     * Envoie un email notifiant que le programme de signature est terminé.
+     */
+    public void sendProgramCompletedEmail(String to, String name, String programTitle, Long documentId) {
+        try {
+            String subject = "Programme terminé - " + programTitle;
+            String downloadUrl = "https://eparapheur.ci/api/documents/" + documentId + "/download"; // URL à adapter
+            
+            Map<String, String> templateData = new HashMap<>();
+            templateData.put("name", name);
+            templateData.put("programTitle", programTitle);
+            templateData.put("downloadUrl", downloadUrl);
+            
+            send(programCompletedTemplate, templateData, to, subject);
+        } catch (Exception e) {
+            logger.error("Erreur lors de l'envoi de l'email de fin de programme: {}", e.getMessage());
+            // Fallback
+            String body = "Le programme " + programTitle + " est terminé. Vous pouvez le télécharger.";
+            sendTextEmail(to, "Programme terminé", body);
+        }
     }
 
 

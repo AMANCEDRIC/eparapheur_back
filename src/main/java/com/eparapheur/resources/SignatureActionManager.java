@@ -45,6 +45,9 @@ public class SignatureActionManager {
     AuditService auditService;
 
     @Inject
+    EmailService emailService;
+
+    @Inject
     StepParticipantRepository participantRepository;
 
     @Inject
@@ -67,6 +70,9 @@ public class SignatureActionManager {
 
     @Inject
     AccountRepository accountRepository;
+
+    @Inject
+    PersonRepository personRepository;
 
     @POST
     @Path("/execute")
@@ -224,6 +230,9 @@ public class SignatureActionManager {
 
             otpService.markAsUsed(otp);
 
+            // 12. Vérifier si le programme est terminé pour notifier les signataires
+            checkAndNotifyProgramCompletion(existingSignedDoc, document);
+
             ApiResponse<SignatureActionEntity> response = new ApiResponse<>();
             response.setStatus_code(HttpContextStatus.SUCCESS_OPERATION);
             response.setStatus_message("Signature effectuée avec succès");
@@ -234,6 +243,38 @@ public class SignatureActionManager {
         } catch (Exception e) {
             logger.error("Erreur lors de l'exécution de la signature", e);
             return buildErrorResponse(500, "Erreur lors de la signature : " + e.getMessage());
+        }
+    }
+
+    private void checkAndNotifyProgramCompletion(SignedDocumentEntity signedDoc, DocumentEntity document) {
+        if (signedDoc == null) return;
+        
+        Long programId = signedDoc.getIdProgram();
+        long totalParticipants = participantRepository.count("step.idProgram = ?1", programId);
+        long completedParticipants = participantRepository.count("step.idProgram = ?1 AND status = 'COMPLETED'", programId);
+        
+        if (completedParticipants == totalParticipants) {
+            logger.info("Programme {} terminé ! Envoi des notifications...", programId);
+            
+            // Récupérer le titre du programme
+            SignatureProgramEntity program = SignatureProgramEntity.findById(programId);
+            String title = (program != null) ? program.getTitle() : "votre document";
+            
+            // Notifier tous les participants
+            java.util.List<StepParticipantEntity> allParticipants = participantRepository.find("step.idProgram", programId).list();
+            for (StepParticipantEntity p : allParticipants) {
+                if (p.getAccount() != null) {
+                    PersonEntity person = personRepository.findById(p.getAccount().getIdUser());
+                    if (person != null && person.getEmailUser() != null) {
+                        emailService.sendProgramCompletedEmail(
+                            person.getEmailUser(),
+                            person.getPrenUser(),
+                            title,
+                            document.getId()
+                        );
+                    }
+                }
+            }
         }
     }
 

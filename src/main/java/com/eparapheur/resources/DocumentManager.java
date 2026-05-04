@@ -3,6 +3,7 @@ package com.eparapheur.resources;
 import com.eparapheur.core.features.ApiResponse;
 import com.eparapheur.core.services.FileStorageService;
 import com.eparapheur.db.entities.DocumentEntity;
+import com.eparapheur.db.entities.SignedDocumentEntity;
 import com.eparapheur.db.repositories.DocumentRepository;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -26,6 +27,15 @@ public class DocumentManager {
     
     @Inject
     FileStorageService fileStorageService;
+
+    @Inject
+    com.eparapheur.db.repositories.SignedDocumentRepository signedDocumentRepository;
+
+    @Inject
+    com.eparapheur.db.repositories.StepParticipantRepository participantRepository;
+
+    @Inject
+    com.eparapheur.db.repositories.ProgramStepRepository stepRepository;
     
     /**
      * Télécharge un document par son ID
@@ -50,9 +60,36 @@ public class DocumentManager {
                     .entity(errorResponse)
                     .build();
             }
+
+            // 1b. Vérifier si le document est lié à un programme et si celui-ci est terminé
+            SignedDocumentEntity signedDoc = signedDocumentRepository.find("idDocument", id).firstResult();
+            
+            String pathToServe = document.getDocumentPath();
+            String fileNameToServe = document.getDocumentName();
+
+            if (signedDoc != null) {
+                Long programId = signedDoc.getIdProgram();
+                // Vérifier si tous les participants du programme ont signé
+                long totalParticipants = participantRepository.count("step.idProgram = ?1", programId);
+                long completedParticipants = participantRepository.count("step.idProgram = ?1 AND status = 'COMPLETED'", programId);
+                
+                if (completedParticipants < totalParticipants) {
+                    ApiResponse<Object> forbiddenResponse = new ApiResponse<>();
+                    forbiddenResponse.setStatus_code(403);
+                    forbiddenResponse.setStatus_message("Le document ne peut pas être téléchargé tant que tous les signataires n'ont pas signé.");
+                    return Response.status(403)
+                        .type(MediaType.APPLICATION_JSON)
+                        .entity(forbiddenResponse)
+                        .build();
+                }
+
+                // Si terminé, on sert la version signée
+                pathToServe = signedDoc.getSignedPath();
+                fileNameToServe = "signed_" + fileNameToServe;
+            }
             
             // 2. Récupérer le contenu du fichier depuis le stockage
-            byte[] fileContent = fileStorageService.getFileContent(document.getDocumentPath());
+            byte[] fileContent = fileStorageService.getFileContent(pathToServe);
             
             // 3. Déterminer le Content-Type
             String contentType = document.getDocumentType();
@@ -64,7 +101,7 @@ public class DocumentManager {
             return Response.ok(new ByteArrayInputStream(fileContent))
                 .type(contentType)
                 .header("Content-Disposition", 
-                    "attachment; filename=\"" + document.getDocumentName() + "\"")
+                    "attachment; filename=\"" + fileNameToServe + "\"")
                 .header("Content-Length", fileContent.length)
                 .build();
             

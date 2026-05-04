@@ -103,7 +103,11 @@ public class SignatureService {
             signature.setFilter(PDSignature.FILTER_ADOBE_PPKLITE);
             signature.setSubFilter(PDSignature.SUBFILTER_ETSI_CADES_DETACHED);
             
-            String signerName = certificate.getSubjectX500Principal().getName().split(",")[0].replace("CN=", "");
+            String subjectName = certificate.getSubjectX500Principal().getName();
+            String signerName = subjectName;
+            if (subjectName.contains("CN=")) {
+                signerName = subjectName.substring(subjectName.indexOf("CN=") + 3).split(",")[0];
+            }
             signature.setName(signerName);
             signature.setLocation("Côte d'Ivoire");
             signature.setReason("Signature électronique de " + signerName);
