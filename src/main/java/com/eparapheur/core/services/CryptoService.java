@@ -40,6 +40,9 @@ public class CryptoService {
     @Inject
     CertificateService certificateService;
 
+    @Inject
+    com.eparapheur.db.repositories.UserCertificateRepository certificateRepository;
+
     /**
      * Génère une identité complète pour l'utilisateur (Clés RSA + Certificat X.509).
      */
@@ -125,6 +128,21 @@ public class CryptoService {
 
     public UserPrivateKeyEntity getPrivateKeyEntity(Long accountId) {
         return privateKeyRepository.find("idAccount", accountId).firstResult();
+    }
+
+    /**
+     * Récupère le certificat X.509 d'un utilisateur.
+     */
+    public java.security.cert.X509Certificate getX509Certificate(Long accountId) throws Exception {
+        UserCertificateEntity entity = certificateRepository.find("idAccount = ?1 AND active = true", accountId).firstResult();
+        if (entity == null) {
+            throw new Exception("Certificat introuvable pour ce compte.");
+        }
+
+        java.security.cert.CertificateFactory cf = java.security.cert.CertificateFactory.getInstance("X.509");
+        return (java.security.cert.X509Certificate) cf.generateCertificate(
+                new java.io.ByteArrayInputStream(entity.getCertificatePem().getBytes(StandardCharsets.UTF_8))
+        );
     }
 
     /**

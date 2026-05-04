@@ -19,6 +19,8 @@ import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.math.BigDecimal;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -165,10 +167,21 @@ public class SignatureActionManager {
                 }
             }
 
-            // 8. Appliquer le visuel
+            // 8. Signature et Appliquation du visuel (Mode PAdES)
             String resultPath = inputPath;
-            if (visual != null) {
-                resultPath = signatureService.applySignatureVisual(inputPath, document.getDocumentName(), visual, action);
+            if ("avancee".equals(action.getSignatureLevel())) {
+                // Récupérer les objets de signature
+                PrivateKey privateKey = cryptoService.getPrivateKey(participant.getIdAccount());
+                X509Certificate certificate = cryptoService.getX509Certificate(participant.getIdAccount());
+                
+                resultPath = signatureService.signDocumentPAdES(inputPath, document.getDocumentName(), visual, action, privateKey, certificate);
+            } else if (visual != null) {
+                // Fallback signature visuelle simple si non avancée
+                // resultPath = signatureService.applySignatureVisual(inputPath, document.getDocumentName(), visual, action);
+                // Note: Pour simplifier, on peut tout passer en PAdES si on veut le "Pro" partout
+                PrivateKey privateKey = cryptoService.getPrivateKey(participant.getIdAccount());
+                X509Certificate certificate = cryptoService.getX509Certificate(participant.getIdAccount());
+                resultPath = signatureService.signDocumentPAdES(inputPath, document.getDocumentName(), visual, action, privateKey, certificate);
             }
 
             // 8. Enregistrer/Mettre à jour SignedDocumentEntity
