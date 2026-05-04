@@ -121,7 +121,11 @@ public class SignatureService {
                 float width = action.getSignatureWidth() != null ? action.getSignatureWidth().floatValue() : 150;
                 float height = action.getSignatureHeight() != null ? action.getSignatureHeight().floatValue() : 50;
                 
-                PDRectangle rect = new PDRectangle(x, y, width, height);
+                // Correction du positionnement : Inversion de l'axe Y pour le Designer
+                float pageHeight = doc.getPage(pageNum).getMediaBox().getHeight();
+                float adjustedY = pageHeight - y - height;
+
+                PDRectangle rect = new PDRectangle(x, adjustedY, width, height);
                 options.setVisualSignature(createVisualSignature(doc, pageNum, rect, visual, signerName));
             }
 
