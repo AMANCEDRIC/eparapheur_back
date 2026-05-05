@@ -190,15 +190,17 @@ public class SignatureService {
                 BufferedImage baseImage = ImageIO.read(visualPath.toFile());
                 if (baseImage == null) throw new IOException("Impossible de lire l'image de signature");
 
-                int width = 200; // Largeur fixe pour le rendu
-                int height = 100; // Hauteur fixe pour le rendu
+                // Augmenter la résolution pour une meilleure qualité (3x la taille cible)
+                int width = 600; 
+                int height = 300; 
                 
                 BufferedImage combined = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
                 Graphics2D g = combined.createGraphics();
                 
-                // Fond blanc (facultatif, selon besoin)
-                // g.setColor(Color.WHITE);
-                // g.fillRect(0, 0, width, height);
+                // Activer l'anti-aliasing pour une qualité premium
+                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
 
                 // Dessiner l'image (70% de la hauteur)
                 int imageHeight = (int) (height * 0.7);
@@ -206,11 +208,13 @@ public class SignatureService {
                 
                 // Dessiner le texte (30% restant)
                 g.setColor(Color.BLACK);
-                g.setFont(new Font("Arial", Font.PLAIN, 12));
+                // Utilisation d'une police plus grande et plus nette
+                g.setFont(new Font("Serif", Font.ITALIC, 40));
                 
                 String dateStr = new SimpleDateFormat("dd/MM/yyyy HH:mm").format(Calendar.getInstance().getTime());
-                g.drawString("Signé par " + signerName, 5, imageHeight + 15);
-                g.drawString("le " + dateStr, 5, imageHeight + 30);
+                g.drawString("Signé par " + signerName, 20, imageHeight + 45);
+                g.setFont(new Font("Serif", Font.PLAIN, 34));
+                g.drawString("le " + dateStr, 20, imageHeight + 90);
                 
                 g.dispose();
                 

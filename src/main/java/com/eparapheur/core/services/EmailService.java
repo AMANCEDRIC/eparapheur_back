@@ -291,15 +291,17 @@ public class EmailService {
     /**
      * Envoie un email notifiant que le programme de signature est terminé.
      */
-    public void sendProgramCompletedEmail(String to, String name, String programTitle, Long documentId) {
+    public void sendProgramCompletedEmail(String to, String name, String programTitle, Long documentId, Long programId) {
         try {
             String subject = "Programme terminé - " + programTitle;
-            String downloadUrl = "http://localhost:8081/documents/" + documentId + "/download"; // URL à adapter
+            String downloadUrl = "http://localhost:8081/documents/" + documentId + "/download"; 
+            String proofUrl = "http://localhost:8081/documents/proof/" + programId;
             
             Map<String, String> templateData = new HashMap<>();
             templateData.put("name", name);
             templateData.put("programTitle", programTitle);
             templateData.put("downloadUrl", downloadUrl);
+            templateData.put("proofUrl", proofUrl);
             
             send(programCompletedTemplate, templateData, to, subject);
         } catch (Exception e) {

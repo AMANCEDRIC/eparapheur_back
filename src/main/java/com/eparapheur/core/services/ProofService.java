@@ -94,7 +94,12 @@ public class ProofService {
                 FileStorageService.StorageType.PROOFS);
         
         tempZip.delete();
-        logger.info("Dossier de preuve généré: {}", savedPath);
+        
+        // Sauvegarder le chemin dans le programme
+        program.setProofPath(savedPath);
+        programRepository.persist(program);
+
+        logger.info("Dossier de preuve généré et associé au programme: {}", savedPath);
         return savedPath;
     }
 

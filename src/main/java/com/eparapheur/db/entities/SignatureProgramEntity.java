@@ -58,6 +58,9 @@ public class SignatureProgramEntity extends PanacheEntityBase {
     @Column(name = "display_identity")
     private Boolean displayIdentity;
 
+    @Column(name = "proof_path", length = 512)
+    private String proofPath;
+
     @OneToMany(mappedBy = "program", cascade = CascadeType.ALL)
     private List<ProgramStepEntity> steps;
 
@@ -187,6 +190,14 @@ public class SignatureProgramEntity extends PanacheEntityBase {
 
     public void setDisplayIdentity(Boolean displayIdentity) {
         this.displayIdentity = displayIdentity;
+    }
+
+    public String getProofPath() {
+        return proofPath;
+    }
+
+    public void setProofPath(String proofPath) {
+        this.proofPath = proofPath;
     }
 
     @PrePersist

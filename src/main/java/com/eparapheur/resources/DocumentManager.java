@@ -14,6 +14,7 @@ import org.eclipse.microprofile.openapi.annotations.Operation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.io.ByteArrayInputStream;
 
 @Path("/documents")
@@ -153,6 +154,34 @@ public class DocumentManager {
             response.setData(null);
             return Response.status(500).entity(response).build();
         }
+    }
+
+    /**
+     * Télécharge le dossier de preuve ZIP pour un programme
+     */
+    @GET
+    @Path("/proof/{programId}")
+    @Produces("application/zip")
+    @Operation(summary = "Télécharger le dossier de preuve",
+               description = "Retourne le fichier ZIP contenant les preuves du programme")
+    public Response downloadProof(@PathParam("programId") Long programId) {
+        com.eparapheur.db.entities.SignatureProgramEntity program = com.eparapheur.db.entities.SignatureProgramEntity.findById(programId);
+        if (program == null || program.getProofPath() == null) {
+            return Response.status(404).build();
+        }
+
+        java.nio.file.Path path = fileStorageService.getAbsolutePath(program.getProofPath());
+        File file = path.toFile();
+
+        if (!file.exists()) {
+            return Response.status(404).build();
+        }
+
+        String fileName = "Dossier_de_preuve_" + program.getTitle().replaceAll("\\s+", "_") + ".zip";
+        return Response.ok(file)
+            .type("application/zip")
+            .header("Content-Disposition", "attachment; filename=\"" + fileName + "\"")
+            .build();
     }
 }
 

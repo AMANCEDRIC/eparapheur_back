@@ -2,6 +2,7 @@ package com.eparapheur.resources;
 
 import com.eparapheur.core.services.FileStorageService;
 import com.eparapheur.db.entities.DocumentEntity;
+import com.eparapheur.db.entities.SignatureProgramEntity;
 import com.eparapheur.db.entities.SignedDocumentEntity;
 import com.eparapheur.db.repositories.DocumentRepository;
 import com.eparapheur.db.repositories.SignedDocumentRepository;
@@ -32,7 +33,6 @@ public class FileResource {
 
     /**
      * Sert les visuels de signature.
-     * URL: /api/files/visuals/2026/04/28/sig_xxx.png
      */
     @GET
     @Path("/visuals/{path:.+}")
