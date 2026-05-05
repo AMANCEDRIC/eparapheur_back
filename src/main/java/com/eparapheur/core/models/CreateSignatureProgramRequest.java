@@ -33,6 +33,8 @@ public class CreateSignatureProgramRequest {
     @Size(min = 1, message = "Au moins une étape est requise")
     @Valid
     private List<CreateStepRequest> steps;
+
+    private Boolean displayIdentity = false;
     
     // Getters/Setters
     public String getOtp() { return otp; }
@@ -61,5 +63,8 @@ public class CreateSignatureProgramRequest {
     
     public List<CreateStepRequest> getSteps() { return steps; }
     public void setSteps(List<CreateStepRequest> steps) { this.steps = steps; }
+
+    public Boolean getDisplayIdentity() { return displayIdentity; }
+    public void setDisplayIdentity(Boolean displayIdentity) { this.displayIdentity = displayIdentity; }
 }
 

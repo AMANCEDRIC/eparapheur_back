@@ -36,6 +36,9 @@ public class SignatureActionManager {
     SignatureService signatureService;
 
     @Inject
+    ProofService proofService;
+
+    @Inject
     OtpService otpService;
 
     @Inject
@@ -98,6 +101,13 @@ public class SignatureActionManager {
             // 1. Récupérer le participant
             StepParticipantEntity participant = participantRepository.findById(participantId);
             if (participant == null) return buildErrorResponse(404, "Participant introuvable.");
+
+            // NOUVEAU: Récupérer le paramètre displayIdentity depuis la configuration du programme
+            Boolean displayIdentity = false;
+            if (participant.getStep() != null && participant.getStep().getProgram() != null) {
+                displayIdentity = participant.getStep().getProgram().getDisplayIdentity();
+                if (displayIdentity == null) displayIdentity = false;
+            }
 
             // 2. Vérifier l'OTP (Consentement)
             OtpEntity otp = otpService.verifyOtp(participant.getIdAccount(), otpCode, "SIGNATURE");
@@ -180,14 +190,14 @@ public class SignatureActionManager {
                 PrivateKey privateKey = cryptoService.getPrivateKey(participant.getIdAccount());
                 X509Certificate certificate = cryptoService.getX509Certificate(participant.getIdAccount());
                 
-                resultPath = signatureService.signDocumentPAdES(inputPath, document.getDocumentName(), visual, action, privateKey, certificate);
+                resultPath = signatureService.signDocumentPAdES(inputPath, document.getDocumentName(), visual, action, privateKey, certificate, displayIdentity);
             } else if (visual != null) {
                 // Fallback signature visuelle simple si non avancée
                 // resultPath = signatureService.applySignatureVisual(inputPath, document.getDocumentName(), visual, action);
                 // Note: Pour simplifier, on peut tout passer en PAdES si on veut le "Pro" partout
                 PrivateKey privateKey = cryptoService.getPrivateKey(participant.getIdAccount());
                 X509Certificate certificate = cryptoService.getX509Certificate(participant.getIdAccount());
-                resultPath = signatureService.signDocumentPAdES(inputPath, document.getDocumentName(), visual, action, privateKey, certificate);
+                resultPath = signatureService.signDocumentPAdES(inputPath, document.getDocumentName(), visual, action, privateKey, certificate, displayIdentity);
             }
 
             // 8. Enregistrer/Mettre à jour SignedDocumentEntity
@@ -254,11 +264,18 @@ public class SignatureActionManager {
         long completedParticipants = participantRepository.count("step.idProgram = ?1 AND status = 'COMPLETED'", programId);
         
         if (completedParticipants == totalParticipants) {
-            logger.info("Programme {} terminé ! Envoi des notifications...", programId);
+            logger.info("Programme {} terminé ! Envoi des notifications et génération de preuve...", programId);
             
             // Récupérer le titre du programme
             SignatureProgramEntity program = SignatureProgramEntity.findById(programId);
             String title = (program != null) ? program.getTitle() : "votre document";
+
+            // Génération du dossier de preuve
+            try {
+                proofService.generateProofFolder(programId);
+            } catch (Exception e) {
+                logger.error("Erreur lors de la génération du dossier de preuve pour le programme {}", programId, e);
+            }
             
             // Notifier tous les participants
             java.util.List<StepParticipantEntity> allParticipants = participantRepository.find("step.idProgram", programId).list();

@@ -55,6 +55,9 @@ public class SignatureProgramEntity extends PanacheEntityBase {
     @Column(name = "deleted_at")
     private Timestamp deletedAt;
 
+    @Column(name = "display_identity")
+    private Boolean displayIdentity;
+
     @OneToMany(mappedBy = "program", cascade = CascadeType.ALL)
     private List<ProgramStepEntity> steps;
 
@@ -176,6 +179,14 @@ public class SignatureProgramEntity extends PanacheEntityBase {
 
     public void setSteps(List<ProgramStepEntity> steps) {
         this.steps = steps;
+    }
+
+    public Boolean getDisplayIdentity() {
+        return displayIdentity;
+    }
+
+    public void setDisplayIdentity(Boolean displayIdentity) {
+        this.displayIdentity = displayIdentity;
     }
 
     @PrePersist

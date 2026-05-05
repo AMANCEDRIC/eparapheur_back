@@ -32,7 +32,8 @@ public class FileStorageService {
     public enum StorageType {
         ORIGINAL("documents/original"),
         SIGNED("documents/signed"),
-        VISUAL("visuals");
+        VISUAL("visuals"),
+        PROOFS("proofs");
 
         private final String subPath;
 

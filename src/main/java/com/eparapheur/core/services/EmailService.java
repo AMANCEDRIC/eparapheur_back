@@ -294,7 +294,7 @@ public class EmailService {
     public void sendProgramCompletedEmail(String to, String name, String programTitle, Long documentId) {
         try {
             String subject = "Programme terminé - " + programTitle;
-            String downloadUrl = "https://eparapheur.ci/api/documents/" + documentId + "/download"; // URL à adapter
+            String downloadUrl = "http://localhost:8081/documents/" + documentId + "/download"; // URL à adapter
             
             Map<String, String> templateData = new HashMap<>();
             templateData.put("name", name);

@@ -19,6 +19,7 @@ public class SignatureProgramDTO {
     private Timestamp endDate;
     private Timestamp createdAt;
     private Timestamp updatedAt;
+    private Boolean displayIdentity;
     private List<ProgramStepDTO> steps;  // DTO pour éviter la référence circulaire
 
     public SignatureProgramDTO() {
@@ -119,6 +120,14 @@ public class SignatureProgramDTO {
 
     public void setSteps(List<ProgramStepDTO> steps) {
         this.steps = steps;
+    }
+
+    public Boolean getDisplayIdentity() {
+        return displayIdentity;
+    }
+
+    public void setDisplayIdentity(Boolean displayIdentity) {
+        this.displayIdentity = displayIdentity;
     }
 }
 

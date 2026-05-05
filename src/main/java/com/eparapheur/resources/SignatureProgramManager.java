@@ -246,6 +246,8 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
             ));
         }
         
+        program.setDisplayIdentity(request.getDisplayIdentity());
+        
         return program;
     }
     
@@ -668,6 +670,7 @@ public class SignatureProgramManager extends CrudEndPointImpl<SignatureProgramEn
         dto.setEndDate(program.getEndDate());
         dto.setCreatedAt(program.getCreatedAt());
         dto.setUpdatedAt(program.getUpdatedAt());
+        dto.setDisplayIdentity(program.getDisplayIdentity());
         
         // Mapper l'initiateur
         if (program.getIdInitiatorAccount() != null) {

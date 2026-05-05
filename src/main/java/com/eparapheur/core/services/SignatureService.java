@@ -3,13 +3,21 @@ package com.eparapheur.core.services;
 import com.eparapheur.db.entities.*;
 import com.eparapheur.db.repositories.SignatureActionRepository;
 import com.eparapheur.db.repositories.SignedDocumentRepository;
+
+import javax.imageio.ImageIO;
+import java.awt.*;
+import java.awt.image.BufferedImage;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDType1Font;
+import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureInterface;
 import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions;
@@ -38,6 +46,7 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
@@ -85,7 +94,7 @@ public class SignatureService {
     /**
      * Signe numériquement un PDF (PAdES) avec un visuel optionnel.
      */
-    public String signDocumentPAdES(String relativeInputPath, String originalFileName, UserSignatureVisualEntity visual, SignatureActionEntity action, PrivateKey privateKey, X509Certificate certificate) throws Exception {
+    public String signDocumentPAdES(String relativeInputPath, String originalFileName, UserSignatureVisualEntity visual, SignatureActionEntity action, PrivateKey privateKey, X509Certificate certificate, boolean displayIdentity) throws Exception {
         Path inputPath = fileStorageService.getAbsolutePath(relativeInputPath);
         File inputFile = inputPath.toFile();
 
@@ -130,7 +139,7 @@ public class SignatureService {
                 float adjustedY = pageHeight - y - height;
 
                 PDRectangle rect = new PDRectangle(x, adjustedY, width, height);
-                options.setVisualSignature(createVisualSignature(doc, pageNum, rect, visual, signerName));
+                options.setVisualSignature(createVisualSignature(doc, pageNum, rect, visual, signerName, displayIdentity));
             }
 
             // 3. Ajout de la signature au document
@@ -154,23 +163,80 @@ public class SignatureService {
     /**
      * Crée l'apparence visuelle de la signature numérique.
      */
-    private InputStream createVisualSignature(PDDocument doc, int pageNum, PDRectangle rect, UserSignatureVisualEntity visual, String signerName) throws Exception {
+    private InputStream createVisualSignature(PDDocument doc, int pageNum, PDRectangle rect, UserSignatureVisualEntity visual, String signerName, boolean displayIdentity) throws Exception {
         Path visualPath = fileStorageService.getAbsolutePath(visual.getVisualPath());
-        try (FileInputStream fis = new FileInputStream(visualPath.toFile())) {
-            PDVisibleSignDesigner designer = new PDVisibleSignDesigner(doc, fis, pageNum + 1);
-            designer.xAxis(rect.getLowerLeftX()).yAxis(rect.getLowerLeftY()).width(rect.getWidth()).height(rect.getHeight());
-            
-            PDVisibleSigProperties properties = new PDVisibleSigProperties();
-            properties.signerName(signerName)
-                      .signerLocation("Côte d'Ivoire")
-                      .signatureReason("Signature Électronique")
-                      .preferredSize(0)
-                      .page(pageNum + 1)
-                      .visualSignEnabled(true)
-                      .setPdVisibleSignature(designer);
-            
-            properties.buildSignature();
-            return properties.getVisibleSignature();
+        
+        if (!displayIdentity) {
+            try (FileInputStream fis = new FileInputStream(visualPath.toFile())) {
+                PDVisibleSignDesigner designer = new PDVisibleSignDesigner(doc, fis, pageNum + 1);
+                designer.xAxis(rect.getLowerLeftX()).yAxis(rect.getLowerLeftY()).width(rect.getWidth()).height(rect.getHeight());
+                
+                PDVisibleSigProperties properties = new PDVisibleSigProperties();
+                properties.signerName(signerName)
+                          .signerLocation("Côte d'Ivoire")
+                          .signatureReason("Signature Électronique")
+                          .preferredSize(0)
+                          .page(pageNum + 1)
+                          .visualSignEnabled(true)
+                          .setPdVisibleSignature(designer);
+                
+                properties.buildSignature();
+                return properties.getVisibleSignature();
+            }
+        } else {
+            // Création d'une image BufferedImage pour le visuel combiné (Image + Texte)
+            try {
+                // Charger l'image de base
+                BufferedImage baseImage = ImageIO.read(visualPath.toFile());
+                if (baseImage == null) throw new IOException("Impossible de lire l'image de signature");
+
+                int width = 200; // Largeur fixe pour le rendu
+                int height = 100; // Hauteur fixe pour le rendu
+                
+                BufferedImage combined = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D g = combined.createGraphics();
+                
+                // Fond blanc (facultatif, selon besoin)
+                // g.setColor(Color.WHITE);
+                // g.fillRect(0, 0, width, height);
+
+                // Dessiner l'image (70% de la hauteur)
+                int imageHeight = (int) (height * 0.7);
+                g.drawImage(baseImage, 0, 0, width, imageHeight, null);
+                
+                // Dessiner le texte (30% restant)
+                g.setColor(Color.BLACK);
+                g.setFont(new Font("Arial", Font.PLAIN, 12));
+                
+                String dateStr = new SimpleDateFormat("dd/MM/yyyy HH:mm").format(Calendar.getInstance().getTime());
+                g.drawString("Signé par " + signerName, 5, imageHeight + 15);
+                g.drawString("le " + dateStr, 5, imageHeight + 30);
+                
+                g.dispose();
+                
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                ImageIO.write(combined, "PNG", baos);
+                
+                try (InputStream imageStream = new ByteArrayInputStream(baos.toByteArray())) {
+                    PDVisibleSignDesigner designer = new PDVisibleSignDesigner(doc, imageStream, pageNum + 1);
+                    designer.xAxis(rect.getLowerLeftX()).yAxis(rect.getLowerLeftY()).width(rect.getWidth()).height(rect.getHeight());
+                    
+                    PDVisibleSigProperties properties = new PDVisibleSigProperties();
+                    properties.signerName(signerName)
+                              .signerLocation("Côte d'Ivoire")
+                              .signatureReason("Signature Électronique")
+                              .preferredSize(0)
+                              .page(pageNum + 1)
+                              .visualSignEnabled(true)
+                              .setPdVisibleSignature(designer);
+                    
+                    properties.buildSignature();
+                    return properties.getVisibleSignature();
+                }
+            } catch (Exception e) {
+                logger.error("Erreur lors de la création du visuel de signature combiné", e);
+                throw e;
+            }
         }
     }
 
