@@ -4,39 +4,24 @@ import com.eparapheur.db.entities.*;
 import com.eparapheur.db.repositories.SignatureActionRepository;
 import com.eparapheur.db.repositories.SignedDocumentRepository;
 
+import eu.europa.esig.dss.enumerations.DigestAlgorithm;
+import eu.europa.esig.dss.enumerations.MimeTypeEnum;
+import eu.europa.esig.dss.enumerations.SignatureAlgorithm;
+import eu.europa.esig.dss.enumerations.SignatureLevel;
+import eu.europa.esig.dss.enumerations.SignaturePackaging;
+import eu.europa.esig.dss.model.*;
+import eu.europa.esig.dss.model.x509.CertificateToken;
+import eu.europa.esig.dss.pades.PAdESSignatureParameters;
+import eu.europa.esig.dss.pades.SignatureFieldParameters;
+import eu.europa.esig.dss.pades.SignatureImageParameters;
+import eu.europa.esig.dss.pades.signature.PAdESService;
+
 import javax.imageio.ImageIO;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
-import org.apache.pdfbox.Loader;
-import org.apache.pdfbox.pdmodel.PDDocument;
-import org.apache.pdfbox.pdmodel.PDPage;
-import org.apache.pdfbox.pdmodel.PDPageContentStream;
-import org.apache.pdfbox.pdmodel.common.PDRectangle;
-import org.apache.pdfbox.pdmodel.font.PDType1Font;
-import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
-import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
-import org.apache.pdfbox.pdmodel.interactive.digitalsignature.PDSignature;
-import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureInterface;
-import org.apache.pdfbox.pdmodel.interactive.digitalsignature.SignatureOptions;
-import org.apache.pdfbox.pdmodel.interactive.digitalsignature.visible.PDVisibleSigProperties;
-import org.apache.pdfbox.pdmodel.interactive.digitalsignature.visible.PDVisibleSignDesigner;
-import org.apache.pdfbox.pdmodel.interactive.form.PDAcroForm;
-import org.bouncycastle.asn1.ASN1EncodableVector;
-import org.bouncycastle.asn1.cms.AttributeTable;
-import org.bouncycastle.cert.X509CertificateHolder;
-import org.bouncycastle.cert.jcajce.JcaCertStore;
-import org.bouncycastle.cms.CMSProcessableByteArray;
-import org.bouncycastle.cms.CMSSignedData;
-import org.bouncycastle.cms.CMSSignedDataGenerator;
-import org.bouncycastle.cms.CMSTypedData;
-import org.bouncycastle.cms.jcajce.JcaSignerInfoGeneratorBuilder;
-import org.bouncycastle.operator.ContentSigner;
-import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
-import org.bouncycastle.operator.jcajce.JcaDigestCalculatorProviderBuilder;
-import org.bouncycastle.util.Store;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,7 +32,6 @@ import java.security.MessageDigest;
 import java.security.PrivateKey;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.List;
@@ -68,6 +52,13 @@ public class SignatureService {
 
     @Inject
     CryptoService cryptoService;
+
+    @Inject
+    DssConfigService dssConfigService;
+
+    // -------------------------------------------------------------------------
+    // Hash utilitaire (conservé pour l'audit trail)
+    // -------------------------------------------------------------------------
 
     /**
      * Calcule le hash SHA-256 d'un fichier.
@@ -91,10 +82,32 @@ public class SignatureService {
         return hexString.toString();
     }
 
+    // -------------------------------------------------------------------------
+    // Signature PAdES via DSS (PAdES-BASELINE-T avec horodatage TSA)
+    // -------------------------------------------------------------------------
+
     /**
-     * Signe numériquement un PDF (PAdES) avec un visuel optionnel.
+     * Signe numériquement un PDF au niveau PAdES-BASELINE-T via la librairie DSS
+     * de l'Union Européenne. Inclut un horodatage RFC 3161 via FreeTSA.
+     *
+     * @param relativeInputPath Chemin relatif du fichier source (original ou déjà signé)
+     * @param originalFileName  Nom original du fichier (pour nommer le résultat)
+     * @param visual            Entité visuel de signature (peut être null)
+     * @param action            Acte de signature (coordonnées, page, etc.)
+     * @param privateKey        Clé privée RSA du signataire (déchiffrée)
+     * @param certificate       Certificat X.509 du signataire
+     * @param displayIdentity   Si true, affiche nom + date dans le visuel
+     * @return Chemin relatif du fichier signé sauvegardé
      */
-    public String signDocumentPAdES(String relativeInputPath, String originalFileName, UserSignatureVisualEntity visual, SignatureActionEntity action, PrivateKey privateKey, X509Certificate certificate, boolean displayIdentity) throws Exception {
+    public String signDocumentPAdES(
+            String relativeInputPath,
+            String originalFileName,
+            UserSignatureVisualEntity visual,
+            SignatureActionEntity action,
+            PrivateKey privateKey,
+            X509Certificate certificate,
+            boolean displayIdentity) throws Exception {
+
         Path inputPath = fileStorageService.getAbsolutePath(relativeInputPath);
         File inputFile = inputPath.toFile();
 
@@ -102,187 +115,197 @@ public class SignatureService {
             throw new Exception("Fichier source introuvable : " + relativeInputPath);
         }
 
-        // Fichier temporaire pour le résultat
-        String outputFileName = "signed_" + System.currentTimeMillis() + "_" + originalFileName;
-        File tempFile = Files.createTempFile("sign_pades_", ".pdf").toFile();
+        logger.info("Démarrage signature PAdES-BASELINE-T pour : {}", originalFileName);
 
-        try (PDDocument doc = Loader.loadPDF(inputFile)) {
-            // 1. Préparation de la signature
-            PDSignature signature = new PDSignature();
-            signature.setFilter(PDSignature.FILTER_ADOBE_PPKLITE);
-            signature.setSubFilter(PDSignature.SUBFILTER_ETSI_CADES_DETACHED);
-            
-            String subjectName = certificate.getSubjectX500Principal().getName();
-            String signerName = subjectName;
-            if (subjectName.contains("CN=")) {
-                signerName = subjectName.substring(subjectName.indexOf("CN=") + 3).split(",")[0];
-            }
-            signature.setName(signerName);
-            signature.setLocation("Côte d'Ivoire");
-            signature.setReason("Signature électronique de " + signerName);
-            signature.setSignDate(Calendar.getInstance());
+        // ─── 1. Charger le document source en mémoire (format DSS) ─────────
+        byte[] inputBytes = Files.readAllBytes(inputFile.toPath());
+        DSSDocument toSignDocument = new InMemoryDocument(inputBytes, originalFileName, MimeTypeEnum.PDF);
 
-            // 2. Options de signature (Visuel)
-            SignatureOptions options = new SignatureOptions();
-            if (visual != null) {
-                int pageNum = (action.getSignaturePage() != null) ? action.getSignaturePage() - 1 : 0;
-                options.setPage(pageNum);
-                
-                // Positionnement rectangulaire pour le widget de signature
-                float x = action.getSignatureX() != null ? action.getSignatureX().floatValue() : 100;
-                float y = action.getSignatureY() != null ? action.getSignatureY().floatValue() : 100;
-                float width = action.getSignatureWidth() != null ? action.getSignatureWidth().floatValue() : 150;
-                float height = action.getSignatureHeight() != null ? action.getSignatureHeight().floatValue() : 50;
-                
-                // Correction du positionnement : Inversion de l'axe Y pour le Designer
-                float pageHeight = doc.getPage(pageNum).getMediaBox().getHeight();
-                float adjustedY = pageHeight - y - height;
+        // ─── 2. Construire les paramètres de signature PAdES ────────────────
+        PAdESSignatureParameters parameters = new PAdESSignatureParameters();
 
-                PDRectangle rect = new PDRectangle(x, adjustedY, width, height);
-                options.setVisualSignature(createVisualSignature(doc, pageNum, rect, visual, signerName, displayIdentity));
-            }
+        // Niveau T = Baseline + Timestamp TSA (RFC 3161)
+        parameters.setSignatureLevel(SignatureLevel.PAdES_BASELINE_T);
+        parameters.setSignaturePackaging(SignaturePackaging.ENVELOPED);
+        parameters.setDigestAlgorithm(DigestAlgorithm.SHA256);
 
-            // 3. Ajout de la signature au document
-            doc.addSignature(signature, new CmsSignatureInterface(privateKey, certificate), options);
+        // Identité du signataire
+        CertificateToken certToken = new CertificateToken(certificate);
+        parameters.setSigningCertificate(certToken);
+        parameters.setCertificateChain(List.of(certToken));
 
-            // 4. Sauvegarde incrémentale
-            try (FileOutputStream fos = new FileOutputStream(tempFile)) {
-                doc.saveIncremental(fos);
-            }
+        // Date de signature
+        parameters.bLevel().setSigningDate(Calendar.getInstance().getTime());
+
+        // Nom du signataire (extrait du CN du certificat)
+        String subjectName = certificate.getSubjectX500Principal().getName();
+        String signerName = subjectName;
+        if (subjectName.contains("CN=")) {
+            signerName = subjectName.substring(subjectName.indexOf("CN=") + 3).split(",")[0];
         }
 
-        // 5. Stockage définitif
-        String savedPath = fileStorageService.saveBase64File(outputFileName, 
-                Base64.getEncoder().encodeToString(Files.readAllBytes(tempFile.toPath())), 
-                FileStorageService.StorageType.SIGNED);
-        
-        tempFile.delete();
+        // ─── 3. Paramètres visuels (si un visuel est fourni) ────────────────
+        if (visual != null) {
+            SignatureImageParameters imageParameters = buildSignatureImageParameters(
+                    inputFile, visual, action, signerName, displayIdentity);
+            parameters.setImageParameters(imageParameters);
+        }
+
+        // ─── 4. Obtenir les données à signer (ToBeSigned) ───────────────────
+        PAdESService padesService = dssConfigService.buildPadesService();
+        ToBeSigned dataToSign = padesService.getDataToSign(toSignDocument, parameters);
+
+        // ─── 5. Signer avec la clé privée de l'utilisateur (JCA standard) ───
+        java.security.Signature signer = java.security.Signature.getInstance("SHA256withRSA");
+        signer.initSign(privateKey);
+        signer.update(dataToSign.getBytes());
+        byte[] rawSignatureBytes = signer.sign();
+
+        SignatureValue signatureValue = new SignatureValue(
+                SignatureAlgorithm.RSA_SHA256,
+                rawSignatureBytes
+        );
+
+        // ─── 6. Finaliser la signature (DSS applique le timestamp TSA ici) ──
+        DSSDocument signedDocument = padesService.signDocument(toSignDocument, parameters, signatureValue);
+
+        // ─── 7. Sauvegarder le document signé ───────────────────────────────
+        String outputFileName = "signed_" + System.currentTimeMillis() + "_" + originalFileName;
+        byte[] signedBytes = toByteArray(signedDocument);
+
+        String savedPath = fileStorageService.saveBase64File(
+                outputFileName,
+                Base64.getEncoder().encodeToString(signedBytes),
+                FileStorageService.StorageType.SIGNED
+        );
+
+        logger.info("Signature PAdES-BASELINE-T terminée → {}", savedPath);
         return savedPath;
     }
 
+    // -------------------------------------------------------------------------
+    // Construction du visuel de signature (conservé et adapté pour DSS)
+    // -------------------------------------------------------------------------
+
     /**
-     * Crée l'apparence visuelle de la signature numérique.
+     * Construit les paramètres d'apparence visuelle pour DSS.
+     * Génère une image composite (visuel utilisateur + texte d'identité si demandé)
+     * puis la passe à DSS via SignatureImageParameters.
      */
-    private InputStream createVisualSignature(PDDocument doc, int pageNum, PDRectangle rect, UserSignatureVisualEntity visual, String signerName, boolean displayIdentity) throws Exception {
+    private SignatureImageParameters buildSignatureImageParameters(
+            File inputFile,
+            UserSignatureVisualEntity visual,
+            SignatureActionEntity action,
+            String signerName,
+            boolean displayIdentity) throws Exception {
+
         Path visualPath = fileStorageService.getAbsolutePath(visual.getVisualPath());
-        
-        if (!displayIdentity) {
-            try (FileInputStream fis = new FileInputStream(visualPath.toFile())) {
-                PDVisibleSignDesigner designer = new PDVisibleSignDesigner(doc, fis, pageNum + 1);
-                designer.xAxis(rect.getLowerLeftX()).yAxis(rect.getLowerLeftY()).width(rect.getWidth()).height(rect.getHeight());
-                
-                PDVisibleSigProperties properties = new PDVisibleSigProperties();
-                properties.signerName(signerName)
-                          .signerLocation("Côte d'Ivoire")
-                          .signatureReason("Signature Électronique")
-                          .preferredSize(0)
-                          .page(pageNum + 1)
-                          .visualSignEnabled(true)
-                          .setPdVisibleSignature(designer);
-                
-                properties.buildSignature();
-                return properties.getVisibleSignature();
-            }
-        } else {
-            // Création d'une image BufferedImage pour le visuel combiné (Image + Texte)
-            try {
-                // Charger l'image de base
-                BufferedImage baseImage = ImageIO.read(visualPath.toFile());
-                if (baseImage == null) throw new IOException("Impossible de lire l'image de signature");
 
-                // Augmenter la résolution pour une meilleure qualité (3x la taille cible)
-                int width = 600; 
-                int height = 300; 
-                
-                BufferedImage combined = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-                Graphics2D g = combined.createGraphics();
-                
-                // Activer l'anti-aliasing pour une qualité premium
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+        // Coordonnées du rectangle de signature
+        float x      = action.getSignatureX()      != null ? action.getSignatureX().floatValue()     : 100f;
+        float y      = action.getSignatureY()       != null ? action.getSignatureY().floatValue()      : 100f;
+        float width  = action.getSignatureWidth()   != null ? action.getSignatureWidth().floatValue() : 150f;
+        float height = action.getSignatureHeight()  != null ? action.getSignatureHeight().floatValue(): 50f;
+        int   page   = action.getSignaturePage()    != null ? action.getSignaturePage()              : 1;
 
-                // Dessiner l'image (70% de la hauteur)
-                int imageHeight = (int) (height * 0.7);
-                g.drawImage(baseImage, 0, 0, width, imageHeight, null);
-                
-                // Dessiner le texte (30% restant)
-                g.setColor(Color.BLACK);
-                // Utilisation d'une police plus grande et plus nette
-                g.setFont(new Font("Serif", Font.ITALIC, 40));
-                
-                String dateStr = new SimpleDateFormat("dd/MM/yyyy HH:mm").format(Calendar.getInstance().getTime());
-                g.drawString("Signé par " + signerName, 20, imageHeight + 45);
-                g.setFont(new Font("Serif", Font.PLAIN, 34));
-                g.drawString("le " + dateStr, 20, imageHeight + 90);
-                
-                g.dispose();
-                
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                ImageIO.write(combined, "PNG", baos);
-                
-                try (InputStream imageStream = new ByteArrayInputStream(baos.toByteArray())) {
-                    PDVisibleSignDesigner designer = new PDVisibleSignDesigner(doc, imageStream, pageNum + 1);
-                    designer.xAxis(rect.getLowerLeftX()).yAxis(rect.getLowerLeftY()).width(rect.getWidth()).height(rect.getHeight());
-                    
-                    PDVisibleSigProperties properties = new PDVisibleSigProperties();
-                    properties.signerName(signerName)
-                              .signerLocation("Côte d'Ivoire")
-                              .signatureReason("Signature Électronique")
-                              .preferredSize(0)
-                              .page(pageNum + 1)
-                              .visualSignEnabled(true)
-                              .setPdVisibleSignature(designer);
-                    
-                    properties.buildSignature();
-                    return properties.getVisibleSignature();
+        // Déterminer la hauteur de la page PDF pour ajuster l'axe Y (le frontend envoie des coordonnées standard PDF orientées bas-haut)
+        float pageHeight = 842f; // Valeur par défaut A4
+        try {
+            try (org.apache.pdfbox.pdmodel.PDDocument doc = org.apache.pdfbox.Loader.loadPDF(inputFile)) {
+                int pdfBoxPageIndex = page - 1;
+                if (pdfBoxPageIndex >= 0 && pdfBoxPageIndex < doc.getNumberOfPages()) {
+                    org.apache.pdfbox.pdmodel.PDPage pdPage = doc.getPage(pdfBoxPageIndex);
+                    pageHeight = pdPage.getMediaBox().getHeight();
+                    logger.debug("Hauteur réelle de la page {} lue via PDFBox : {} points", page, pageHeight);
                 }
-            } catch (Exception e) {
-                logger.error("Erreur lors de la création du visuel de signature combiné", e);
-                throw e;
             }
+        } catch (Exception e) {
+            logger.warn("Impossible de lire la hauteur de la page via PDFBox, utilisation de 842 : {}", e.getMessage());
         }
+
+        // Conversion de l'origine Y (bas-haut en haut-bas pour DSS)
+        float adjustedY = pageHeight - y - height;
+
+        // Générer l'image du visuel (avec ou sans identité textuelle)
+        byte[] imageBytes = buildVisualImage(visualPath, signerName, displayIdentity);
+
+        // Configurer les paramètres DSS pour l'image
+        SignatureImageParameters imageParams = new SignatureImageParameters();
+
+        SignatureFieldParameters fieldParams = new SignatureFieldParameters();
+        fieldParams.setOriginX(x);
+        fieldParams.setOriginY(adjustedY);
+        fieldParams.setWidth(width);
+        fieldParams.setHeight(height);
+        fieldParams.setPage(page);
+        imageParams.setFieldParameters(fieldParams);
+
+        // Image composite comme fond du widget de signature
+        imageParams.setImage(new InMemoryDocument(imageBytes));
+
+        return imageParams;
     }
+
+    /**
+     * Génère l'image composite du visuel de signature.
+     * - Sans displayIdentity : image brute du visuel utilisateur
+     * - Avec displayIdentity : image (70%) + "Signé par X le JJ/MM/AAAA" (30%)
+     */
+    private byte[] buildVisualImage(Path visualPath, String signerName, boolean displayIdentity) throws Exception {
+        if (!displayIdentity) {
+            return Files.readAllBytes(visualPath);
+        }
+
+        // Image combinée : visuel + texte d'identité
+        BufferedImage baseImage = ImageIO.read(visualPath.toFile());
+        if (baseImage == null) {
+            throw new IOException("Impossible de lire l'image de signature : " + visualPath);
+        }
+
+        int width  = 600;
+        int height = 300;
+        BufferedImage combined = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = combined.createGraphics();
+
+        // Rendu haute qualité
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,  RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,      RenderingHints.VALUE_INTERPOLATION_BICUBIC);
+
+        // Zone image (70%)
+        int imageHeight = (int) (height * 0.7);
+        g.drawImage(baseImage, 0, 0, width, imageHeight, null);
+
+        // Zone texte (30%)
+        g.setColor(Color.BLACK);
+        String dateStr = new SimpleDateFormat("dd/MM/yyyy HH:mm").format(Calendar.getInstance().getTime());
+        g.setFont(new Font("Serif", Font.ITALIC, 40));
+        g.drawString("Signé par " + signerName, 20, imageHeight + 45);
+        g.setFont(new Font("Serif", Font.PLAIN, 34));
+        g.drawString("le " + dateStr, 20, imageHeight + 90);
+        g.dispose();
+
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ImageIO.write(combined, "PNG", baos);
+        return baos.toByteArray();
+    }
+
+    // -------------------------------------------------------------------------
+    // Persistance de l'acte de signature
+    // -------------------------------------------------------------------------
 
     @Transactional
     public void recordSignatureAction(SignatureActionEntity action) {
         signatureActionRepository.persist(action);
     }
 
-    /**
-     * Implémentation interne de la signature CMS/PKCS7.
-     */
-    private static class CmsSignatureInterface implements SignatureInterface {
-        private final PrivateKey privateKey;
-        private final X509Certificate certificate;
+    // -------------------------------------------------------------------------
+    // Utilitaire interne
+    // -------------------------------------------------------------------------
 
-        public CmsSignatureInterface(PrivateKey privateKey, X509Certificate certificate) {
-            this.privateKey = privateKey;
-            this.certificate = certificate;
-        }
-
-        @Override
-        public byte[] sign(InputStream content) throws IOException {
-            try {
-                List<X509Certificate> certList = new ArrayList<>();
-                certList.add(certificate);
-                Store certs = new JcaCertStore(certList);
-                
-                CMSSignedDataGenerator gen = new CMSSignedDataGenerator();
-                ContentSigner sha256Signer = new JcaContentSignerBuilder("SHA256withRSA").build(privateKey);
-                
-                gen.addSignerInfoGenerator(new JcaSignerInfoGeneratorBuilder(
-                        new JcaDigestCalculatorProviderBuilder().build())
-                        .build(sha256Signer, certificate));
-                gen.addCertificates(certs);
-                
-                CMSProcessableByteArray msg = new CMSProcessableByteArray(content.readAllBytes());
-                CMSSignedData signedData = gen.generate(msg, false);
-                
-                return signedData.getEncoded();
-            } catch (Exception e) {
-                throw new IOException("Erreur lors de la génération de la signature CMS", e);
-            }
-        }
+    private byte[] toByteArray(DSSDocument doc) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        doc.writeTo(baos);
+        return baos.toByteArray();
     }
 }

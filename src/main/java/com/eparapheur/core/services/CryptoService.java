@@ -146,6 +146,18 @@ public class CryptoService {
     }
 
     /**
+     * Retourne la chaîne de certificats au format DSS (CertificateToken[]).
+     * Utilisé pour configurer PAdESSignatureParameters avec DSS.
+     * Pour les certificats auto-signés, la chaîne contient un seul élément.
+     */
+    public eu.europa.esig.dss.model.x509.CertificateToken[] getCertificateChain(Long accountId) throws Exception {
+        java.security.cert.X509Certificate cert = getX509Certificate(accountId);
+        return new eu.europa.esig.dss.model.x509.CertificateToken[] {
+            new eu.europa.esig.dss.model.x509.CertificateToken(cert)
+        };
+    }
+
+    /**
      * Vérifie une signature.
      */
     public boolean verifySignature(String documentHashHex, String signatureBase64, String publicKeyBase64) throws Exception {

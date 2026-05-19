@@ -68,3 +68,13 @@ smallrye:
     sign:
       key:
         location: resources/privateKey.pem
+
+# Configuration DSS — EU Digital Signature Services
+dss:
+  # URL du service d'horodatage (TSA) — FreeTSA gratuit pour dev/test
+  # En production : remplacer par un TSA certifié (ex: SwissSign, Certigna)
+  tsa-url: "https://freetsa.org/tsr"
+  # Niveau de signature PAdES cible : PAdES_BASELINE_T (avec horodatage)
+  signature-level: "PAdES_BASELINE_T"
+  # false = mode permissif pour les certificats auto-signés (pas de vérif OCSP/CRL)
+  check-revocation: false
